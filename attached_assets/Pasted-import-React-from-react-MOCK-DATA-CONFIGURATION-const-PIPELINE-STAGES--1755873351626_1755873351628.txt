@@ -1,0 +1,477 @@
+import React from 'react';
+
+// --- MOCK DATA & CONFIGURATION --- //
+const PIPELINE_STAGES = [
+  'Yet to Assign', 'Yet to Contact', 'Contact Again', 'Not Interested', 'Planning Later', 
+  'Yet to Decide', 'Irrelevant Lead', 'Registered for Session', 'Session Completed', 
+  'Docs Submitted', 'Shortlisted Univ.', 'Application in Progress', 'Offer Letter Received',
+  'Deposit Paid', 'Visa Received', 'Flight and Accommodation Booked', 'Tuition Fee Paid', 'Commission Received'
+];
+
+// --- CENTRALIZED DROPDOWN OPTIONS --- //
+const DROPDOWN_OPTIONS = {
+    taskType: ['Call', 'Meet Done', 'Shortlisting', 'Application Process', 'Tracking'],
+    callType: ['Intro Call', 'Session Follow up call', 'Session Reminder Call', 'Followup Call'],
+    connectStatus: ['Interested', 'Not Interested', 'Planning later', 'Yet to Decide', 'Irrelevant', 'Other Preferred Language', 'Casual Follow-up', 'Session Scheduling'],
+    country: ['USA', 'Canada', 'UK', 'Australia','Singapore'],
+    intake: ['Fall 2024', 'Spring 2025', 'Fall 2025', 'Spring 2026'],
+    prevConsultancy: ['Application Started', 'Offer Received', 'In Loan Process', "No, haven't started", 'Session Scheduled'],
+    sessionStatus: ['Confirmed, Will attend', 'Rescheduled'],
+    isRescheduled: ['Yes', 'No'],
+    notInterestedReason: ['Already started the process', 'Financial issue', 'Looking for placement/Job', 'Planning higher studies in India', 'Low financial status', 'Family unwilling to invest', 'Debt burden already exists', 'Not eligible for loan', 'No property or asset for collateral', 'Parents oppose taking loans', 'Fear of loan repayment pressure'],
+    planningLaterReason: ['Financial readiness', 'Exam preparation', 'Personal commitments'],
+    yetToDecideReason: ['Want to discuss with family/friends/relatives', 'Other'],
+    preferredLanguage: ['Tamil', 'Telugu', 'Malayalam', 'Gujarati', 'Hindi', 'Kannada', 'Marathi', 'Odia', 'Punjabi', 'Sanskrit', 'Urdu'],
+    shortlistingInitiated: ['Requested In KC', 'Done by own'],
+    shortlistingStatus: ['New Shortlisting', 'Add-on Shortlisting'],
+    shortlistingFinalStatus: ['Sent to students', 'Yet to send'],
+    applicationProcess: ['New Application Initiated at KC', 'Add-on Application Initiated at KC'],
+    trackingStatus: ['Credentials logging', 'Application Status', 'Offer Letter Status', 'VISA Tracking'],
+    applicationStatus: ['Application submitted to KC', 'Application submitted to university', 'Docs Pending', 'In Progress', 'Awaiting decision', 'Accepted', 'Rejected'],
+    offerLetterStatus: ['Conditional', 'Unconditional'],
+    visaStatus: ['Applied', 'In Process', 'Approved', 'Rejected'],
+};
+
+
+const initialLeadData = {
+  id: 'LD-001',
+  name: 'Alice Johnson',
+  email: 'alice.j@example.com',
+  phone: '+1 234 567 890',
+  currentStageIndex: 1, // 'Yet to Contact'
+  counselor: 'Sarah Miller',
+  manager: 'John Doe',
+  counselorPhone: '+1 987 654 3210',
+  managerPhone: '+1 123 456 7890',
+  source: 'Website Inquiry',
+  created: '2023-10-26',
+};
+
+const stageHistory = [
+    { stage: 'Yet to Assign', date: '2023-10-26', user: 'System' },
+    { stage: 'Yet to Contact', date: '2023-10-26', user: 'Sarah Miller' },
+];
+
+const initialRemarks = [
+    { remark: 'Initial inquiry from website.', date: '2023-10-26', user: 'System' },
+];
+
+// --- STAGE PROGRESSION LOGIC --- //
+const getNextStageFromTask = (taskData, currentStage) => {
+    const { taskType, connectStatus, finalStatus, applicationProcess, trackingStatus, offerLetterStatus, visaStatus } = taskData;
+
+    if (taskType === 'Call' || taskType === 'Meet Done') {
+        switch (connectStatus) {
+            case 'Interested': return taskType === 'Meet Done' ? 'Session Completed' : null;
+            case 'Not Interested': return 'Not Interested';
+            case 'Planning later': return 'Planning Later';
+            case 'Yet to Decide': return 'Yet to Decide';
+            case 'Irrelevant': return 'Irrelevant Lead';
+            case 'Session Scheduling': return 'Registered for Session';
+            default: return null;
+        }
+    }
+    
+    if (taskType === 'Shortlisting' && finalStatus === 'Sent to students') {
+        return 'Shortlisted Univ.';
+    }
+
+    if (taskType === 'Application Process' && taskData.applicationProcess) {
+        return 'Application in Progress';
+    }
+
+    if (taskType === 'Tracking') {
+        if (trackingStatus === 'Offer Letter Status' && offerLetterStatus) {
+            return 'Offer Letter Received';
+        }
+        if (trackingStatus === 'VISA Tracking' && visaStatus === 'Approved') {
+            return 'Visa Received';
+        }
+    }
+
+    return null; // Return null if no stage change is triggered
+};
+
+
+// --- SVG ICONS (from lucide-react) --- //
+const ChevronRightIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m9 18 6-6-6-6"/></svg>;
+const CheckCircleIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>;
+const XIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><line x1="18" x2="6" y1="6" y2="18"/><line x1="6" x2="18" y1="6" y2="18"/></svg>;
+const MoreVerticalIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>;
+const PlusCircleIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>;
+const MessageSquareIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>;
+const ClipboardListIcon = ({ className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M12 11h4"></path><path d="M12 16h4"></path><path d="M8 11h.01"></path><path d="M8 16h.01"></path></svg>;
+
+
+// --- REUSABLE & TASK COMPOSER COMPONENTS --- //
+const Card = ({ children, className = '' }) => <div className={`bg-white p-6 rounded-2xl border border-gray-200/80 shadow-sm ${className}`}>{children}</div>;
+const CardTitle = ({ children }) => <h3 className="text-lg font-semibold text-gray-800 mb-4">{children}</h3>;
+const Button = ({ children, onClick, className = '', disabled = false, type = 'button' }) => <button type={type} onClick={onClick} disabled={disabled} className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 ${className}`}>{children}</button>;
+const Select = ({ label, name, value, onChange, options, placeholder }) => (
+    <div>
+        <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+        <select id={name} name={name} value={value || ''} onChange={onChange} className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md shadow-sm">
+            <option value="">{placeholder || `Select ${label}...`}</option>
+            {options.map(option => <option key={option} value={option}>{option}</option>)}
+        </select>
+    </div>
+);
+const Input = ({ label, name, type = 'text', value, onChange }) => (
+    <div>
+        <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+        <input type={type} name={name} id={name} value={value || ''} onChange={onChange} className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md" />
+    </div>
+);
+const Textarea = ({ label, name, value, onChange }) => (
+    <div>
+        <label htmlFor={name} className="block text-sm font-medium text-gray-700 mb-1">{label}</label>
+        <textarea id={name} name={name} value={value || ''} onChange={onChange} rows={3} className="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"></textarea>
+    </div>
+);
+
+
+const TaskComposer = ({ onTaskComplete, currentStage }) => {
+    const [isTaskModalOpen, setIsTaskModalOpen] = React.useState(false);
+    const [taskData, setTaskData] = React.useState({});
+    const [step, setStep] = React.useState(1);
+
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setTaskData(prev => ({ ...prev, [name]: value }));
+    };
+    
+    const resetForm = () => {
+        setTaskData({});
+        setStep(1);
+    }
+
+    const handleOpenModal = () => {
+        resetForm();
+        setIsTaskModalOpen(true);
+    };
+    const handleCloseModal = () => setIsTaskModalOpen(false);
+    
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        const nextStage = getNextStageFromTask(taskData, currentStage);
+        onTaskComplete(taskData, nextStage);
+        handleCloseModal();
+    }
+
+    const renderStep = () => {
+        switch (step) {
+            case 1:
+                return <Select label="Task Type" name="taskType" value={taskData.taskType} onChange={(e) => { handleInputChange(e); setStep(2); }} options={DROPDOWN_OPTIONS.taskType} />;
+            case 2:
+                if (taskData.taskType === 'Call') return <Select label="Call Type" name="callType" value={taskData.callType} onChange={(e) => { handleInputChange(e); setStep(3); }} options={DROPDOWN_OPTIONS.callType} />;
+                if (taskData.taskType === 'Meet Done') return <Select label="Call/Meet Connect Status" name="connectStatus" value={taskData.connectStatus} onChange={(e) => { handleInputChange(e); setStep(3); }} options={DROPDOWN_OPTIONS.connectStatus} />;
+                if (taskData.taskType === 'Shortlisting') return <div className="space-y-4"><Select label="Shortlisting Initiated" name="shortlistingInitiated" value={taskData.shortlistingInitiated} onChange={handleInputChange} options={DROPDOWN_OPTIONS.shortlistingInitiated} /><Select label="Shortlisting Status" name="shortlistingStatus" value={taskData.shortlistingStatus} onChange={handleInputChange} options={DROPDOWN_OPTIONS.shortlistingStatus} /><Select label="Country" name="country" value={taskData.country} onChange={handleInputChange} options={DROPDOWN_OPTIONS.country} /><Select label="Intake" name="intake" value={taskData.intake} onChange={handleInputChange} options={DROPDOWN_OPTIONS.intake} /><Select label="Final Status" name="finalStatus" value={taskData.finalStatus} onChange={handleInputChange} options={DROPDOWN_OPTIONS.shortlistingFinalStatus} /><Button type="submit" className="w-full bg-green-600 text-white hover:bg-green-700 focus:ring-green-500">Save Task & Update Stage</Button></div>;
+                if (taskData.taskType === 'Application Process') return <div className="space-y-4"><Select label="Application Process" name="applicationProcess" value={taskData.applicationProcess} onChange={handleInputChange} options={DROPDOWN_OPTIONS.applicationProcess} /><Input label="How many applications submitted to KC?" name="applicationCount" type="number" value={taskData.applicationCount} onChange={handleInputChange} /><Button type="submit" className="w-full bg-green-600 text-white hover:bg-green-700 focus:ring-green-500">Save Task & Update Stage</Button></div>;
+                if (taskData.taskType === 'Tracking') return <Select label="Tracking Status" name="trackingStatus" value={taskData.trackingStatus} onChange={(e) => { handleInputChange(e); setStep(3); }} options={DROPDOWN_OPTIONS.trackingStatus} />;
+                return <p>This task type is not fully configured yet.</p>;
+            case 3:
+                if (taskData.taskType === 'Call') return <Select label="Call/Meet Connect Status" name="connectStatus" value={taskData.connectStatus} onChange={(e) => { handleInputChange(e); setStep(4); }} options={DROPDOWN_OPTIONS.connectStatus} />;
+                if (taskData.taskType === 'Meet Done') { /* Meet Done Logic */ }
+                if (taskData.taskType === 'Tracking') { /* Tracking logic */ }
+                return <Button type="submit" className="w-full bg-green-600 text-white hover:bg-green-700 focus:ring-green-500">Save Task</Button>;
+            case 4:
+                if (taskData.taskType === 'Call' && taskData.connectStatus === 'Interested') {
+                    return <div className="space-y-4"><Select label="Country" name="country" value={taskData.country} onChange={handleInputChange} options={DROPDOWN_OPTIONS.country} /><Select label="Planning Intake" name="intake" value={taskData.intake} onChange={handleInputChange} options={DROPDOWN_OPTIONS.intake} /><Select label="Started process with other consultancy?" name="prevConsultancy" value={taskData.prevConsultancy} onChange={(e) => { handleInputChange(e); setStep(5); }} options={DROPDOWN_OPTIONS.prevConsultancy} placeholder="Select status..."/><Button type="submit" className="w-full bg-green-600 text-white hover:bg-green-700 focus:ring-green-500">Save Task</Button></div>;
+                }
+                return <Button type="submit" className="w-full bg-green-600 text-white hover:bg-green-700 focus:ring-green-500">Save Task</Button>;
+            case 5:
+                if (taskData.taskType === 'Call' && taskData.prevConsultancy === 'Session Scheduled') {
+                    return <div className="space-y-4"><Select label="Session Status" name="sessionStatus" value={taskData.sessionStatus} onChange={handleInputChange} options={DROPDOWN_OPTIONS.sessionStatus} /><Input label="Session Date" name="sessionDate" type="date" value={taskData.sessionDate} onChange={handleInputChange} /><Select label="Is this a rescheduled one?" name="isRescheduled" value={taskData.isRescheduled} onChange={handleInputChange} options={DROPDOWN_OPTIONS.isRescheduled} /><Button type="submit" className="w-full bg-green-600 text-white hover:bg-green-700 focus:ring-green-500">Save Task</Button></div>;
+                }
+                 return <Button type="submit" className="w-full bg-green-600 text-white hover:bg-green-700 focus:ring-green-500">Save Task</Button>;
+            default:
+                return null;
+        }
+    };
+
+    return (
+        <>
+            <div className="flex items-center justify-between">
+                <CardTitle>Task Composer</CardTitle>
+                <Button onClick={handleOpenModal} className="bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500 flex items-center gap-2">
+                    <PlusCircleIcon className="w-5 h-5" />
+                    Create Task
+                </Button>
+            </div>
+            <p className="text-gray-500">Log calls, schedule meetings, and manage application tasks to automatically advance the lead's stage.</p>
+
+            {isTaskModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
+                    <div className="bg-white w-full max-w-lg p-6 rounded-2xl shadow-xl m-4">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold text-gray-800">Create New Task</h2>
+                            <button onClick={handleCloseModal} className="p-1 rounded-full hover:bg-gray-200"><XIcon className="w-6 h-6 text-gray-500"/></button>
+                        </div>
+                        <form onSubmit={handleSubmit} className="space-y-4">{renderStep()}</form>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
+
+const LeadDataCard = ({ lead, lastTask }) => {
+    return (
+        <Card>
+            <CardTitle>Lead Data</CardTitle>
+            <div className="space-y-4 text-sm">
+                <div>
+                    <h4 className="font-semibold text-gray-800 mb-2 border-b pb-1">Personal Data</h4>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                        <p><strong>Lead ID:</strong> {lead.id}</p>
+                        <p><strong>Source:</strong> {lead.source}</p>
+                        <p><strong>Name:</strong> {lead.name}</p>
+                        <p><strong>Created:</strong> {lead.created}</p>
+                        <p><strong>Email:</strong> {lead.email}</p>
+                        <p><strong>Phone:</strong> {lead.phone}</p>
+                    </div>
+                </div>
+                {lastTask && (
+                    <div>
+                        <h4 className="font-semibold text-gray-800 mb-2 mt-4 border-b pb-1">Last Task Details</h4>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                           <p><strong>Task Type:</strong> {lastTask.taskType}</p>
+                           {lastTask.callType && <p><strong>Call Type:</strong> {lastTask.callType}</p>}
+                           {lastTask.connectStatus && <p><strong>Connect Status:</strong> {lastTask.connectStatus}</p>}
+                           {lastTask.country && <p><strong>Country:</strong> {lastTask.country}</p>}
+                           {lastTask.intake && <p><strong>Intake:</strong> {lastTask.intake}</p>}
+                           {lastTask.finalStatus && <p><strong>Final Status:</strong> {lastTask.finalStatus}</p>}
+                           {lastTask.applicationProcess && <p><strong>Application Process:</strong> {lastTask.applicationProcess}</p>}
+                           {lastTask.trackingStatus && <p><strong>Tracking Status:</strong> {lastTask.trackingStatus}</p>}
+                           {lastTask.offerLetterStatus && <p><strong>Offer Letter:</strong> {lastTask.offerLetterStatus}</p>}
+                           {lastTask.visaStatus && <p><strong>VISA Status:</strong> {lastTask.visaStatus}</p>}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </Card>
+    );
+};
+
+
+// --- MAIN WORKSPACE COMPONENT --- //
+export default function App() {
+  const [lead, setLead] = React.useState(initialLeadData);
+  const [isStageModalOpen, setIsStageModalOpen] = React.useState(false);
+  const [history, setHistory] = React.useState(stageHistory);
+  const [remarks, setRemarks] = React.useState(initialRemarks);
+  const [tasks, setTasks] = React.useState([]);
+  const [activeTab, setActiveTab] = React.useState('Stage Log');
+  const [universityApps, setUniversityApps] = React.useState([]);
+  const [visiblePasswords, setVisiblePasswords] = React.useState({});
+
+  const togglePasswordVisibility = (index) => {
+    setVisiblePasswords(prev => ({ ...prev, [index]: !prev[index] }));
+  };
+
+  const currentStage = PIPELINE_STAGES[lead.currentStageIndex];
+  const nextManualStage = PIPELINE_STAGES[lead.currentStageIndex + 1];
+  const isFinalStage = lead.currentStageIndex >= PIPELINE_STAGES.length - 1;
+
+  const handleOpenStageModal = () => !isFinalStage && setIsStageModalOpen(true);
+  const handleCloseStageModal = () => setIsStageModalOpen(false);
+
+  const handleConfirmStageMove = () => {
+    const newStageIndex = lead.currentStageIndex + 1;
+    setLead(prev => ({ ...prev, currentStageIndex: newStageIndex }));
+    setHistory(prev => [...prev, { stage: PIPELINE_STAGES[newStageIndex], date: new Date().toISOString().split('T')[0], user: 'Sarah Miller (Manual)' }]);
+    handleCloseStageModal();
+  };
+  
+  const handleTaskComplete = (taskData, resultingStage) => {
+      setTasks(prev => [...prev, { ...taskData, date: new Date().toISOString().split('T')[0], user: 'Sarah Miller' }]);
+
+      if (taskData.remarks) {
+          setRemarks(prev => [...prev, { remark: taskData.remarks, date: new Date().toISOString().split('T')[0], user: 'Sarah Miller' }]);
+      }
+
+      if (taskData.taskType === 'Tracking' && taskData.trackingStatus === 'Credentials logging') {
+          setUniversityApps(prev => [...prev, {
+              name: taskData.universityName,
+              url: taskData.universityUrl,
+              username: taskData.username,
+              password: taskData.password,
+          }]);
+      }
+
+      if (resultingStage && resultingStage !== currentStage) {
+          const newStageIndex = PIPELINE_STAGES.indexOf(resultingStage);
+          if (newStageIndex !== -1) {
+              setLead(prev => ({ ...prev, currentStageIndex: newStageIndex }));
+              setHistory(prev => [...prev, { stage: resultingStage, date: new Date().toISOString().split('T')[0], user: 'Sarah Miller (Task)' }]);
+              alert(`Task saved! Lead moved from "${currentStage}" to "${resultingStage}".`);
+          } else {
+              alert(`Task saved! Logic error: Stage "${resultingStage}" not found.`);
+          }
+      } else {
+          alert(`Task saved! No stage change triggered from "${currentStage}".`);
+      }
+  }
+
+  const lastTask = tasks.length > 0 ? tasks[tasks.length - 1] : null;
+
+  return (
+    <div className="min-h-screen bg-gray-50/50 font-sans text-gray-900">
+      <main className="p-4 sm:p-6 lg:p-8">
+        {/* Workspace Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-800">{lead.name}</h1>
+            <div className="flex items-center gap-2 mt-2 text-sm text-gray-500">
+              <span>{lead.email}</span><span>&middot;</span><span>{lead.phone}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-100 focus:ring-gray-400"><MoreVerticalIcon className="w-5 h-5"/></Button>
+            <Button onClick={handleOpenStageModal} disabled={isFinalStage} className="bg-gray-600 text-white hover:bg-gray-700 focus:ring-gray-500 disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center gap-2">
+              <span>Manual Advance</span><ChevronRightIcon className="w-5 h-5" />
+            </Button>
+          </div>
+        </div>
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
+            <Card>
+                <p className="text-sm font-medium text-gray-500">Lead Owner</p>
+                <p className="text-xl font-bold text-gray-800 mt-2">{lead.counselor}</p>
+                <p className="text-sm text-gray-500">{lead.counselorPhone}</p>
+            </Card>
+            <Card>
+                <p className="text-sm font-medium text-gray-500">Manager</p>
+                <p className="text-xl font-bold text-gray-800 mt-2">{lead.manager}</p>
+                <p className="text-sm text-gray-500">{lead.managerPhone}</p>
+            </Card>
+        </div>
+
+        {/* Stage Progress Bar */}
+        <div className="mb-8">
+            <p className="text-sm font-medium text-gray-600 mb-2">Current Stage: <span className="font-bold text-blue-600">{currentStage}</span></p>
+            <div className="w-full bg-gray-200 rounded-full h-2.5"><div className="bg-blue-600 h-2.5 rounded-full transition-all duration-500" style={{ width: `${((lead.currentStageIndex + 1) / PIPELINE_STAGES.length) * 100}%` }}></div></div>
+        </div>
+
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-8">
+            <Card><TaskComposer onTaskComplete={handleTaskComplete} currentStage={currentStage} /></Card>
+            <LeadDataCard lead={lead} lastTask={lastTask} />
+            <Card>
+                <CardTitle>University application</CardTitle>
+                {universityApps.length > 0 ? (
+                    <ul className="space-y-4">
+                        {universityApps.map((app, index) => (
+                            <li key={index} className="p-4 border border-gray-200 rounded-lg">
+                                <p className="font-semibold">{app.name}</p>
+                                <p className="text-sm text-blue-500"><a href={app.url} target="_blank" rel="noopener noreferrer">{app.url}</a></p>
+                                <div className="text-sm mt-2">
+                                    <p><strong>Username:</strong> {app.username}</p>
+                                    <div className="flex items-center gap-2">
+                                        <p><strong>Password:</strong> {visiblePasswords[index] ? app.password : '********'}</p>
+                                        <Button onClick={() => togglePasswordVisibility(index)} className="text-xs bg-gray-200 text-gray-700 px-2 py-1">
+                                            {visiblePasswords[index] ? 'Hide' : 'Show'}
+                                        </Button>
+                                    </div>
+                                </div>
+                            </li>
+                        ))}
+                    </ul>
+                ) : (
+                    <p className="text-gray-500">No university applications logged yet.</p>
+                )}
+            </Card>
+          </div>
+          <div className="lg:col-span-1">
+            <Card className="h-full">
+                <div className="border-b border-gray-200">
+                    <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+                        <button onClick={() => setActiveTab('Stage Log')} className={`${activeTab === 'Stage Log' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>
+                            Stage Log
+                        </button>
+                        <button onClick={() => setActiveTab('Tasks')} className={`${activeTab === 'Tasks' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>
+                            Tasks
+                        </button>
+                        <button onClick={() => setActiveTab('Remarks')} className={`${activeTab === 'Remarks' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}>
+                            Remarks
+                        </button>
+                    </nav>
+                </div>
+
+                <div className="mt-6">
+                    {activeTab === 'Stage Log' && (
+                        <ul className="space-y-4">
+                            {history.slice().reverse().map((item, index) => (
+                               <li key={index} className="flex items-start gap-3">
+                                 <div className="flex flex-col items-center">
+                                    <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center ring-8 ring-white"><CheckCircleIcon className="w-4 h-4 text-white"/></div>
+                                    {index < history.length - 1 && <div className="w-0.5 h-12 bg-gray-200"></div>}
+                                 </div>
+                                 <div>
+                                    <p className="font-semibold text-gray-800">{item.stage}</p>
+                                    <p className="text-sm text-gray-500">by {item.user} on {item.date}</p>
+                                 </div>
+                               </li>
+                            ))}
+                        </ul>
+                    )}
+                    {activeTab === 'Tasks' && (
+                         <ul className="space-y-4">
+                            {tasks.slice().reverse().map((item, index) => (
+                               <li key={index} className="flex items-start gap-3">
+                                 <div className="flex flex-col items-center">
+                                    <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center ring-8 ring-white"><ClipboardListIcon className="w-4 h-4 text-white"/></div>
+                                    {index < tasks.length - 1 && <div className="w-0.5 h-12 bg-gray-200"></div>}
+                                 </div>
+                                 <div>
+                                    <p className="font-semibold text-gray-800">{item.taskType}</p>
+                                    <p className="text-sm text-gray-500">Status: {item.callType || item.connectStatus || item.finalStatus || item.applicationProcess || item.trackingStatus}</p>
+                                    <p className="text-xs text-gray-500 mt-1">by {item.user} on {item.date}</p>
+                                 </div>
+                               </li>
+                            ))}
+                        </ul>
+                    )}
+                    {activeTab === 'Remarks' && (
+                         <ul className="space-y-4">
+                            {remarks.slice().reverse().map((item, index) => (
+                               <li key={index} className="flex items-start gap-3">
+                                 <div className="flex flex-col items-center">
+                                    <div className="w-6 h-6 bg-gray-400 rounded-full flex items-center justify-center ring-8 ring-white"><MessageSquareIcon className="w-4 h-4 text-white"/></div>
+                                    {index < remarks.length - 1 && <div className="w-0.5 h-12 bg-gray-200"></div>}
+                                 </div>
+                                 <div>
+                                    <p className="text-sm text-gray-700 bg-gray-100 p-3 rounded-lg">{item.remark}</p>
+                                    <p className="text-xs text-gray-500 mt-1">by {item.user} on {item.date}</p>
+                                 </div>
+                               </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            </Card>
+          </div>
+        </div>
+      </main>
+
+      {/* Manual Move Stage Modal */}
+      {isStageModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md p-6 rounded-2xl shadow-xl m-4">
+            <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold text-gray-800">Confirm Manual Stage Change</h2>
+                <button onClick={handleCloseModal} className="p-1 rounded-full hover:bg-gray-200"><XIcon className="w-6 h-6 text-gray-500"/></button>
+            </div>
+            <p className="text-gray-600 mb-6">Are you sure you want to manually move this lead from <strong className="text-gray-800">{currentStage}</strong> to <strong className="text-gray-800">{nextManualStage}</strong>?</p>
+            <div className="flex justify-end gap-3">
+              <Button onClick={handleCloseModal} className="bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-400">Cancel</Button>
+              <Button onClick={handleConfirmStageMove} className="bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500">Confirm & Move</Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
