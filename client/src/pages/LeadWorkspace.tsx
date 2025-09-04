@@ -366,6 +366,15 @@ const taskSchema = z.object({
   message: 'Connect status is required when call is completed',
   path: ['connectStatus'],
 }).refine((data) => {
+  // Reason is required when connect status is "Not Interested"
+  if (data.connectStatus === 'Not Interested' && (!data.reasonNotInterested || data.reasonNotInterested.trim() === '')) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'Reason is required when lead is not interested',
+  path: ['reasonNotInterested'],
+}).refine((data) => {
   // When follow-up is required, session date must be provided
   const requiresFollowUp = data.connectStatus === 'Call back' || 
                           data.connectStatus === 'Session Scheduling' || 
@@ -1123,7 +1132,7 @@ const TaskComposer = ({ onTaskComplete, currentStage }: { onTaskComplete: (taskD
                 name="reasonNotInterested"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Reason for Not Interested</FormLabel>
+                    <FormLabel>Reason for Not Interested *</FormLabel>
                     <Select onValueChange={field.onChange} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
@@ -1259,6 +1268,7 @@ const LeadDataCard = ({ lead, lastTask }: { lead: any; lastTask: TaskData | null
               <p><span className="font-medium">Task Type:</span> {lastTask.taskType}</p>
               {lastTask.callType && <p><span className="font-medium">Call Type:</span> {lastTask.callType}</p>}
               {lastTask.connectStatus && <p><span className="font-medium">Connect Status:</span> {lastTask.connectStatus}</p>}
+              {lastTask.reasonNotInterested && <p><span className="font-medium">Not Interested Reason:</span> {lastTask.reasonNotInterested}</p>}
               {lastTask.country && <p><span className="font-medium">Country:</span> {lastTask.country}</p>}
               {lastTask.intake && <p><span className="font-medium">Intake:</span> {lastTask.intake}</p>}
             </div>
