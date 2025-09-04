@@ -1,0 +1,91 @@
+Build a bulk import function for the CRM that can ingest 4,000+ leads in one run and preserve all downstream business logic (auto-assignment to counselors, stage calculation/display, stage history/tasks triggers). The importer must accept all rows (no hard fails), apply non-blocking validations with auto-fixes, and emit a detailed validation log for post-run review. 
+
+Problem
+
+Current imports choke on basic data quality issues (e.g., invalid Lead Created Date format, heavy normalization needed on intake and country) causing 0 valid / 4,134 error rows in a recent run. We need a high-throughput, resilient importer that never blocks the batch, auto-normalizes known fields, and still triggers all CRM automations (counselor assignment, stage logic, stage_history, tasks) exactly as if each lead were created via the UI. 
+
+Solution
+
+Interface & Mode
+
+Endpoint/worker: POST /imports/leads/bulk (CSV/JSON) → enqueues job BulkLeadImportJob.
+
+Modes: dryRun=true|false. Dry run performs all validations/normalizations and returns a log without committing.
+
+Throughput & Safety
+
+Chunking: process in chunks of 1,000 rows (configurable), streaming read, back-pressure aware.
+
+Idempotency: importId + rowHash to avoid duplicates on retries.
+
+Transactional: per-chunk DB transaction; partial chunk commit allowed even if some rows have soft errors.
+
+Validation (Soft, Non-Blocking) + Auto-Fix
+
+leadCreatedDate:
+
+Accept ISO-8601 only; attempt parse of common formats; if unparseable, default to now() and flag in log. (Recent import failed entirely due to invalid date formats—convert, don’t block.) 
+
+intake: normalize to YYYY-Season (e.g., 2026-Spring). Preserve original value in raw.intake_original. 
+
+country: normalize to ISO-3166-1 alpha-2 (e.g., US, DE, GB); keep raw.country_original. 
+
+phone/email: trim, standardize, basic format check; if invalid → store in raw.*, continue.
+
+uid: if missing, generate UID-<zero-padded seq>.
+
+Never reject a row; record severity=WARN/ERROR with autofix applied.
+
+Business Logic (Must Not Change)
+
+Counselor auto-assignment: run the existing assignment engine (rules by region, load, team routing). No new branching.
+
+Stage logic: set currentStage and immediately invoke the same stage mutation pipeline used by the app:
+
+Write stage_history (fromStage, toStage, userId/system, timestamp).
+
+Fire side-effects tied to stages (e.g., task scaffolding, SLA timers, notifications).
+
+Tasks & triggers: create tasks (Call/Meet/etc.) exactly as current rules dictate—no bypass.
+
+Hooks: all existing webhooks and automations must run (feature-flag for throttling, not skipping).
+
+Observability & Outputs
+
+Row-level log: [rowNumber, status=Imported|ImportedWithIssues, fixesApplied[], warnings[], errors[]].
+
+Batch summary: totals, field-wise issue counts, first 50 samples per issue type, processing time, chunk stats.
+
+Downloadable artifacts: validation_log.csv, normalized_payload.jsonl.
+
+Metrics: Prometheus counters for rows processed, normalized, auto-fixed, and per-rule hit counts.
+
+Performance Targets
+
+≥ 5k rows/min on standard job runner.
+
+Memory-safe streaming; no full-file load.
+
+Retries: exponential backoff per chunk; dead-letter queue on persistent DB errors.
+
+Safeguards
+
+Feature flags: import.autofix.enabled, import.webhooks.enabled.
+
+Access control: only Admin/Importer role.
+
+PII hygiene: mask phone/email in logs when exported.
+
+Expected Outcome
+
+A single bulk import of 4,000+ leads completes without hard failures, producing:
+
+100% rows created (some with ImportedWithIssues) and all CRM automations executed:
+
+Counselors assigned via existing rules,
+
+Stages computed & displayed correctly,
+
+stage_history and tasks created as usual.
+
+Clean, exportable validation report showing what was auto-fixed (dates, intake, country, etc.) and what needs manual remediation—with zero loss of business logic fidelity compared to UI-created leads. 

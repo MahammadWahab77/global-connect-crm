@@ -3,6 +3,501 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
 
+// Types for bulk import
+interface ValidationLog {
+  rowNumber: number;
+  status: 'Imported' | 'ImportedWithIssues' | 'Failed';
+  fixesApplied: string[];
+  warnings: string[];
+  errors: string[];
+  originalData?: any;
+  normalizedData?: any;
+}
+
+interface BatchSummary {
+  totalRows: number;
+  imported: number;
+  importedWithIssues: number;
+  failed: number;
+  processingTimeMs: number;
+  chunkStats: {
+    totalChunks: number;
+    successfulChunks: number;
+    failedChunks: number;
+  };
+  fieldIssues: {
+    [fieldName: string]: {
+      count: number;
+      samples: string[];
+    };
+  };
+}
+
+// Enhanced bulk import processor with resilient validation
+async function processBulkLeadImport(
+  rawLeads: any[], 
+  dryRun: boolean, 
+  chunkSize: number, 
+  storage: any
+): Promise<{
+  success: boolean;
+  batchSummary: BatchSummary;
+  validationLog: ValidationLog[];
+  downloadableReports?: {
+    validationLog: string;
+    normalizedPayload: string;
+  };
+}> {
+  const startTime = Date.now();
+  const validationLog: ValidationLog[] = [];
+  const fieldIssues: { [key: string]: { count: number; samples: string[] } } = {};
+  
+  let importedCount = 0;
+  let importedWithIssuesCount = 0;
+  let failedCount = 0;
+  let successfulChunks = 0;
+  let failedChunks = 0;
+
+  // Get manager and counselors once for the entire batch
+  let managerId: number | null = null;
+  let counselors: any[] = [];
+  let defaultCounselor: any = null;
+
+  try {
+    const users = await storage.getAllUsers();
+    const manager = users.find((u: any) => u.name.toLowerCase().includes('anupriya') || u.role === 'admin');
+    managerId = manager?.id || null;
+    counselors = users.filter((u: any) => u.role === 'counselor');
+    defaultCounselor = counselors.find((c: any) => c.name.toLowerCase().includes('likitha'));
+  } catch (error) {
+    console.log("Could not fetch users, proceeding with defaults");
+  }
+
+  // Process in chunks
+  const chunks = [];
+  for (let i = 0; i < rawLeads.length; i += chunkSize) {
+    chunks.push(rawLeads.slice(i, i + chunkSize));
+  }
+
+  for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+    const chunk = chunks[chunkIndex];
+    const chunkStartIndex = chunkIndex * chunkSize;
+    
+    try {
+      for (let i = 0; i < chunk.length; i++) {
+        const rowNumber = chunkStartIndex + i + 1;
+        const rawLead = chunk[i];
+        const log: ValidationLog = {
+          rowNumber,
+          status: 'Imported',
+          fixesApplied: [],
+          warnings: [],
+          errors: [],
+          originalData: { ...rawLead },
+          normalizedData: {}
+        };
+
+        try {
+          const normalized = await normalizeAndValidateLead(rawLead, log, fieldIssues);
+          const businessLogicResult = await applyBusinessLogic(normalized, counselors, defaultCounselor, managerId);
+          
+          log.normalizedData = { ...normalized, ...businessLogicResult };
+
+          if (!dryRun) {
+            // Create the lead and all associated records
+            const newLead = await storage.createLead({
+              uid: normalized.uid,
+              name: normalized.name,
+              email: normalized.email,
+              phone: normalized.phone,
+              country: normalized.country,
+              course: null,
+              intake: normalized.intake,
+              source: normalized.source,
+              currentStage: businessLogicResult.currentStage,
+              counselorId: businessLogicResult.counselorId,
+              managerId: managerId,
+              prevConsultancy: null,
+              passportStatus: normalized.passportStatus,
+              remarks: null,
+              counsellors: normalized.counsellors
+            });
+
+            // Create remarks if present
+            if (normalized.remarks && normalized.remarks.trim()) {
+              await storage.createRemark({
+                leadId: newLead.id,
+                userId: businessLogicResult.counselorId || managerId || 1,
+                content: `Bulk Import: ${normalized.remarks.trim()}`,
+                isVisible: true
+              });
+            }
+
+            // Create stage history
+            if (businessLogicResult.currentStage && businessLogicResult.currentStage !== "Yet to Assign") {
+              await storage.createStageHistory({
+                leadId: newLead.id,
+                fromStage: null,
+                toStage: businessLogicResult.currentStage,
+                userId: businessLogicResult.counselorId || managerId || 1,
+                reason: `Bulk import - ${businessLogicResult.counselorId ? 'Assigned to counselor' : 'Unassigned'}`,
+                createdAt: normalized.leadCreatedDate || new Date()
+              });
+            }
+          }
+
+          if (log.warnings.length > 0 || log.fixesApplied.length > 0) {
+            log.status = 'ImportedWithIssues';
+            importedWithIssuesCount++;
+          } else {
+            importedCount++;
+          }
+
+        } catch (error: any) {
+          log.status = 'Failed';
+          log.errors.push(error.message || 'Unknown error during processing');
+          failedCount++;
+        }
+
+        validationLog.push(log);
+      }
+      
+      successfulChunks++;
+    } catch (chunkError) {
+      console.error(`Chunk ${chunkIndex} failed:`, chunkError);
+      failedChunks++;
+      
+      // Mark all rows in failed chunk as failed
+      for (let i = 0; i < chunk.length; i++) {
+        const rowNumber = chunkStartIndex + i + 1;
+        validationLog.push({
+          rowNumber,
+          status: 'Failed',
+          fixesApplied: [],
+          warnings: [],
+          errors: [`Chunk processing failed: ${chunkError}`],
+          originalData: chunk[i]
+        });
+        failedCount++;
+      }
+    }
+  }
+
+  const endTime = Date.now();
+  
+  const batchSummary: BatchSummary = {
+    totalRows: rawLeads.length,
+    imported: importedCount,
+    importedWithIssues: importedWithIssuesCount,
+    failed: failedCount,
+    processingTimeMs: endTime - startTime,
+    chunkStats: {
+      totalChunks: chunks.length,
+      successfulChunks,
+      failedChunks
+    },
+    fieldIssues
+  };
+
+  return {
+    success: true,
+    batchSummary,
+    validationLog,
+    downloadableReports: {
+      validationLog: generateValidationLogCSV(validationLog),
+      normalizedPayload: generateNormalizedPayloadJSONL(validationLog)
+    }
+  };
+}
+
+// Resilient field normalization with auto-fixes
+async function normalizeAndValidateLead(rawLead: any, log: ValidationLog, fieldIssues: any): Promise<any> {
+  const normalized: any = {};
+
+  // UID handling
+  if (rawLead.uid && rawLead.uid.trim()) {
+    normalized.uid = rawLead.uid.trim();
+  } else {
+    // Generate UID if missing
+    const timestamp = Date.now();
+    normalized.uid = `UID-${timestamp.toString().slice(-6).padStart(6, '0')}`;
+    log.fixesApplied.push('Generated missing UID');
+    addFieldIssue(fieldIssues, 'uid', 'Missing UID - generated automatically');
+  }
+
+  // Name handling (required)
+  if (rawLead.studentName && rawLead.studentName.trim()) {
+    normalized.name = rawLead.studentName.trim();
+  } else if (rawLead.name && rawLead.name.trim()) {
+    normalized.name = rawLead.name.trim();
+  } else {
+    log.errors.push('Missing required student name');
+    normalized.name = 'Unknown Student';
+    log.fixesApplied.push('Set default name for missing student name');
+  }
+
+  // Lead Created Date with resilient parsing
+  if (rawLead.leadCreatedDate) {
+    try {
+      // Try parsing as-is first
+      let parsed = new Date(rawLead.leadCreatedDate);
+      if (isNaN(parsed.getTime())) {
+        // Try common formats
+        const commonFormats = [
+          rawLead.leadCreatedDate.replace(/(\d{2})\/(\d{2})\/(\d{4})/, '$3-$2-$1'), // DD/MM/YYYY to YYYY-MM-DD
+          rawLead.leadCreatedDate.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'), // DD-MM-YYYY to YYYY-MM-DD
+          rawLead.leadCreatedDate.replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'), // YYYYMMDD to YYYY-MM-DD
+        ];
+        
+        for (const format of commonFormats) {
+          parsed = new Date(format);
+          if (!isNaN(parsed.getTime())) break;
+        }
+      }
+      
+      if (!isNaN(parsed.getTime())) {
+        normalized.leadCreatedDate = parsed;
+      } else {
+        throw new Error('Unparseable date format');
+      }
+    } catch (error) {
+      normalized.leadCreatedDate = new Date();
+      log.fixesApplied.push('Invalid date format - defaulted to current date');
+      log.warnings.push(`Original date "${rawLead.leadCreatedDate}" could not be parsed`);
+      addFieldIssue(fieldIssues, 'leadCreatedDate', `Invalid format: ${rawLead.leadCreatedDate}`);
+    }
+  } else {
+    normalized.leadCreatedDate = new Date();
+    log.fixesApplied.push('Missing date - defaulted to current date');
+  }
+
+  // Intake normalization to YYYY-Season format
+  if (rawLead.intake && rawLead.intake.trim()) {
+    normalized.intake = normalizeIntake(rawLead.intake.trim(), log, fieldIssues);
+  } else {
+    normalized.intake = null;
+    log.warnings.push('Missing intake information');
+  }
+
+  // Country normalization to ISO codes
+  if (rawLead.country && rawLead.country.trim()) {
+    normalized.country = normalizeCountry(rawLead.country.trim(), log, fieldIssues);
+  } else {
+    normalized.country = null;
+    log.warnings.push('Missing country information');
+  }
+
+  // Phone normalization
+  if (rawLead.mobileNumber && rawLead.mobileNumber.trim()) {
+    normalized.phone = normalizePhone(rawLead.mobileNumber.trim(), log, fieldIssues);
+  } else if (rawLead.phone && rawLead.phone.trim()) {
+    normalized.phone = normalizePhone(rawLead.phone.trim(), log, fieldIssues);
+  } else {
+    normalized.phone = null;
+    log.warnings.push('Missing phone number');
+  }
+
+  // Email normalization
+  if (rawLead.email && rawLead.email.trim()) {
+    normalized.email = normalizeEmail(rawLead.email.trim(), log, fieldIssues);
+  } else {
+    normalized.email = null; // Now nullable
+  }
+
+  // Other fields
+  normalized.source = rawLead.source && rawLead.source.trim() ? rawLead.source.trim() : 'Unknown';
+  normalized.passportStatus = rawLead.passportStatus && rawLead.passportStatus.trim() ? rawLead.passportStatus.trim() : null;
+  normalized.remarks = rawLead.remarks && rawLead.remarks.trim() ? rawLead.remarks.trim() : null;
+  normalized.counsellors = rawLead.counsellors && rawLead.counsellors.trim() ? rawLead.counsellors.trim() : null;
+
+  return normalized;
+}
+
+// Business logic application (counselor assignment, stage calculation)
+async function applyBusinessLogic(normalized: any, counselors: any[], defaultCounselor: any, managerId: number | null): Promise<any> {
+  let assignedCounselorId = null;
+  let assignedStage = "Yet to Assign";
+  
+  if (normalized.counsellors && normalized.counsellors.trim()) {
+    const counselorName = normalized.counsellors.trim().toLowerCase();
+    const matchedCounselor = counselors.find((c: any) => 
+      c.name.toLowerCase().includes(counselorName) || 
+      counselorName.includes(c.name.toLowerCase())
+    );
+    
+    if (matchedCounselor) {
+      assignedCounselorId = matchedCounselor.id;
+      assignedStage = "Yet to Contact";
+    } else if (defaultCounselor) {
+      assignedCounselorId = defaultCounselor.id;
+      assignedStage = "Yet to Contact";
+    }
+  }
+
+  return {
+    counselorId: assignedCounselorId,
+    currentStage: normalized.currentStage || assignedStage
+  };
+}
+
+function normalizeIntake(intake: string, log: ValidationLog, fieldIssues: any): string {
+  const original = intake;
+  
+  // Common patterns: "Fall 2024", "Spring 2025", "2024 Fall", etc.
+  const seasonMap: { [key: string]: string } = {
+    'fall': 'Fall', 'autumn': 'Fall', 'sep': 'Fall', 'september': 'Fall',
+    'spring': 'Spring', 'jan': 'Spring', 'january': 'Spring',
+    'summer': 'Summer', 'may': 'Summer', 'jun': 'Summer',
+    'winter': 'Winter', 'dec': 'Winter', 'december': 'Winter'
+  };
+  
+  let normalized = intake.toLowerCase();
+  let year = '';
+  let season = '';
+  
+  // Extract year (4 digits)
+  const yearMatch = normalized.match(/\d{4}/);
+  if (yearMatch) {
+    year = yearMatch[0];
+  } else {
+    // Default to next year if no year found
+    year = (new Date().getFullYear() + 1).toString();
+    log.fixesApplied.push(`Added missing year ${year} to intake`);
+  }
+  
+  // Extract season
+  for (const [key, value] of Object.entries(seasonMap)) {
+    if (normalized.includes(key)) {
+      season = value;
+      break;
+    }
+  }
+  
+  if (!season) {
+    season = 'Fall'; // Default season
+    log.fixesApplied.push('Added default season Fall to intake');
+  }
+  
+  const result = `${year}-${season}`;
+  
+  if (result !== original) {
+    log.fixesApplied.push(`Normalized intake from "${original}" to "${result}"`);
+    addFieldIssue(fieldIssues, 'intake', `Normalized: ${original} → ${result}`);
+  }
+  
+  return result;
+}
+
+function normalizeCountry(country: string, log: ValidationLog, fieldIssues: any): string {
+  const original = country;
+  
+  // Common country mappings to ISO-2 codes
+  const countryMap: { [key: string]: string } = {
+    'united states': 'US', 'usa': 'US', 'america': 'US', 'united states of america': 'US',
+    'united kingdom': 'GB', 'uk': 'GB', 'england': 'GB', 'britain': 'GB',
+    'germany': 'DE', 'deutschland': 'DE',
+    'france': 'FR', 'francia': 'FR',
+    'india': 'IN', 'bharat': 'IN',
+    'china': 'CN', 'prc': 'CN',
+    'canada': 'CA',
+    'australia': 'AU', 'aus': 'AU',
+    'japan': 'JP', 'nippon': 'JP',
+    'south korea': 'KR', 'korea': 'KR',
+    'brazil': 'BR', 'brasil': 'BR',
+    'mexico': 'MX', 'méxico': 'MX',
+    'russia': 'RU', 'russian federation': 'RU'
+  };
+  
+  const normalized = country.toLowerCase().trim();
+  const mapped = countryMap[normalized];
+  
+  if (mapped) {
+    if (mapped !== original) {
+      log.fixesApplied.push(`Normalized country from "${original}" to "${mapped}"`);
+      addFieldIssue(fieldIssues, 'country', `Normalized: ${original} → ${mapped}`);
+    }
+    return mapped;
+  } else {
+    // Keep original if no mapping found, but warn
+    log.warnings.push(`Country "${original}" could not be normalized to ISO code`);
+    addFieldIssue(fieldIssues, 'country', `Unknown country: ${original}`);
+    return original;
+  }
+}
+
+function normalizePhone(phone: string, log: ValidationLog, fieldIssues: any): string {
+  const original = phone;
+  
+  // Remove all non-digit characters except +
+  let normalized = phone.replace(/[^\d+]/g, '');
+  
+  // Basic validation - should have at least 10 digits
+  const digitCount = normalized.replace(/\D/g, '').length;
+  if (digitCount < 10) {
+    log.warnings.push(`Phone number "${original}" appears to be too short`);
+    addFieldIssue(fieldIssues, 'phone', `Too short: ${original}`);
+  }
+  
+  if (normalized !== original) {
+    log.fixesApplied.push(`Cleaned phone number from "${original}" to "${normalized}"`);
+  }
+  
+  return normalized;
+}
+
+function normalizeEmail(email: string, log: ValidationLog, fieldIssues: any): string | null {
+  const original = email;
+  const normalized = email.toLowerCase().trim();
+  
+  // Basic email validation
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(normalized)) {
+    log.warnings.push(`Email "${original}" appears to be invalid format`);
+    addFieldIssue(fieldIssues, 'email', `Invalid format: ${original}`);
+    return null; // Return null for invalid emails since field is nullable
+  }
+  
+  if (normalized !== original) {
+    log.fixesApplied.push(`Normalized email from "${original}" to "${normalized}"`);
+  }
+  
+  return normalized;
+}
+
+function addFieldIssue(fieldIssues: any, fieldName: string, issue: string): void {
+  if (!fieldIssues[fieldName]) {
+    fieldIssues[fieldName] = { count: 0, samples: [] };
+  }
+  fieldIssues[fieldName].count++;
+  if (fieldIssues[fieldName].samples.length < 5) {
+    fieldIssues[fieldName].samples.push(issue);
+  }
+}
+
+function generateValidationLogCSV(validationLog: ValidationLog[]): string {
+  const headers = ['Row Number', 'Status', 'Fixes Applied', 'Warnings', 'Errors'];
+  const rows = validationLog.map(log => [
+    log.rowNumber,
+    log.status,
+    log.fixesApplied.join('; '),
+    log.warnings.join('; '),
+    log.errors.join('; ')
+  ]);
+  
+  return [headers, ...rows].map(row => row.map(cell => `"${cell}"`).join(',')).join('\n');
+}
+
+function generateNormalizedPayloadJSONL(validationLog: ValidationLog[]): string {
+  return validationLog
+    .filter(log => log.normalizedData)
+    .map(log => JSON.stringify({
+      rowNumber: log.rowNumber,
+      status: log.status,
+      normalizedData: log.normalizedData
+    }))
+    .join('\n');
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
   app.post("/api/auth/login", async (req, res) => {
@@ -318,6 +813,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error) {
       console.error("Create university application error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Bulk Import route for high-volume resilient processing
+  app.post("/api/imports/leads/bulk", async (req, res) => {
+    try {
+      const { leads, dryRun = false, chunkSize = 1000 } = req.body;
+      
+      if (!leads || !Array.isArray(leads)) {
+        return res.status(400).json({ error: "Invalid leads data" });
+      }
+
+      const result = await processBulkLeadImport(leads, dryRun, chunkSize, storage);
+      res.json(result);
+    } catch (error) {
+      console.error("Bulk import error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

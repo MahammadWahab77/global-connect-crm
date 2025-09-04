@@ -112,6 +112,42 @@ const ImportLeads = () => {
   const [showOnlyDuplicates, setShowOnlyDuplicates] = useState(false);
   const [headerError, setHeaderError] = useState<string | null>(null);
 
+  const [importMode, setImportMode] = useState<'standard' | 'bulk'>('standard');
+  const [bulkProgress, setBulkProgress] = useState<any>(null);
+  const [bulkProcessing, setBulkProcessing] = useState(false);
+
+  const bulkImportMutation = useMutation({
+    mutationFn: ({ leadsData, dryRun }: { leadsData: ParsedLead[], dryRun: boolean }) => 
+      apiRequest('/api/imports/leads/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ 
+          leads: leadsData, 
+          dryRun,
+          chunkSize: 1000 
+        })
+      }),
+    onSuccess: (result) => {
+      setBulkProgress(result);
+      setBulkProcessing(false);
+      if (!result.batchSummary) return;
+      
+      queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats/overview'] });
+      toast({
+        title: "Bulk Import Complete!",
+        description: `${result.batchSummary.imported + result.batchSummary.importedWithIssues} leads processed successfully.`,
+      });
+    },
+    onError: (error: any) => {
+      setBulkProcessing(false);
+      toast({
+        title: "Bulk Import Failed",
+        description: error.message || "There was an error with the bulk import.",
+        variant: "destructive",
+      });
+    }
+  });
+
   const importMutation = useMutation({
     mutationFn: (leadsData: ParsedLead[]) => 
       apiRequest('/api/leads/import-csv', {
@@ -435,6 +471,45 @@ const ImportLeads = () => {
 
   const canProceed = validationSummary && !validationSummary.headerMismatch && validationSummary.errorRows === 0;
 
+  const runBulkImport = async (dryRun: boolean = false) => {
+    if (!canProceed) return;
+    
+    setBulkProcessing(true);
+    setBulkProgress(null);
+    
+    // Filter out leads with errors for actual import
+    const validLeads = leads.filter(lead => lead.errors.length === 0);
+    
+    bulkImportMutation.mutate({ 
+      leadsData: validLeads, 
+      dryRun 
+    });
+  };
+
+  const downloadBulkReport = (reportType: 'validation' | 'normalized') => {
+    if (!bulkProgress?.downloadableReports) return;
+    
+    const content = reportType === 'validation' 
+      ? bulkProgress.downloadableReports.validationLog
+      : bulkProgress.downloadableReports.normalizedPayload;
+    
+    const filename = reportType === 'validation' 
+      ? 'bulk_validation_log.csv'
+      : 'normalized_payload.jsonl';
+    
+    const mimeType = reportType === 'validation' ? 'text/csv' : 'application/jsonl';
+    
+    const blob = new Blob([content], { type: mimeType });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  };
+
   // Virtual list row renderer
   const Row = ({ index, style }: { index: number; style: React.CSSProperties }) => {
     const lead = filteredLeads[index];
@@ -711,6 +786,150 @@ const ImportLeads = () => {
                     </AlertDescription>
                   </Alert>
                 )}
+
+                {/* Import Mode Selection */}
+                <div className="border-t pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-medium text-gray-900">Import Mode Selection</h3>
+                      <p className="text-sm text-gray-600">Choose between standard import or high-volume bulk import with advanced resilience</p>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="importMode"
+                          value="standard"
+                          checked={importMode === 'standard'}
+                          onChange={(e) => setImportMode(e.target.value as 'standard' | 'bulk')}
+                          className="mr-2"
+                        />
+                        Standard Import
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="importMode"
+                          value="bulk"
+                          checked={importMode === 'bulk'}
+                          onChange={(e) => setImportMode(e.target.value as 'standard' | 'bulk')}
+                          className="mr-2"
+                        />
+                        Bulk Import (4K+ leads)
+                      </label>
+                    </div>
+                  </div>
+
+                  {importMode === 'bulk' && (
+                    <Alert className="mb-4">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription>
+                        <strong>Bulk Import Features:</strong>
+                        <ul className="list-disc list-inside mt-1 text-sm">
+                          <li>Resilient processing with auto-fixes (dates, countries, phone numbers)</li>
+                          <li>Chunked processing (1000 rows/chunk) for high throughput</li>
+                          <li>Detailed validation logs and normalization reports</li>
+                          <li>Dry-run mode for validation without committing</li>
+                          <li>Never blocks on individual row errors</li>
+                        </ul>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* Bulk Import Progress */}
+                  {bulkProgress && (
+                    <div className="mt-6">
+                      <h3 className="font-medium text-gray-900 mb-4">Bulk Import Results</h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                        <Card>
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-green-600">{bulkProgress.batchSummary.imported}</div>
+                            <div className="text-sm text-gray-600">Successfully Imported</div>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-yellow-600">{bulkProgress.batchSummary.importedWithIssues}</div>
+                            <div className="text-sm text-gray-600">Imported with Issues</div>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-red-600">{bulkProgress.batchSummary.failed}</div>
+                            <div className="text-sm text-gray-600">Failed</div>
+                          </CardContent>
+                        </Card>
+                        <Card>
+                          <CardContent className="p-4 text-center">
+                            <div className="text-2xl font-bold text-blue-600">{(bulkProgress.batchSummary.processingTimeMs / 1000).toFixed(1)}s</div>
+                            <div className="text-sm text-gray-600">Processing Time</div>
+                          </CardContent>
+                        </Card>
+                      </div>
+
+                      {/* Field Issues Summary */}
+                      {Object.keys(bulkProgress.batchSummary.fieldIssues).length > 0 && (
+                        <div className="mb-4">
+                          <h4 className="font-medium text-gray-900 mb-2">Field Issues Detected & Auto-Fixed:</h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            {Object.entries(bulkProgress.batchSummary.fieldIssues).map(([field, issues]: [string, any]) => (
+                              <div key={field} className="bg-gray-50 p-2 rounded text-sm">
+                                <strong>{field}:</strong> {issues.count} issues
+                                <div className="text-xs text-gray-600 mt-1">
+                                  Sample: {issues.samples[0]}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex space-x-2 mb-4">
+                        <Button variant="outline" onClick={() => downloadBulkReport('validation')} data-testid="button-download-validation-log">
+                          <Download className="mr-2 h-4 w-4" />
+                          Download Validation Log
+                        </Button>
+                        <Button variant="outline" onClick={() => downloadBulkReport('normalized')} data-testid="button-download-normalized">
+                          <Download className="mr-2 h-4 w-4" />
+                          Download Normalized Data
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end space-x-4">
+                    {importMode === 'standard' ? (
+                      <Button 
+                        onClick={() => importMutation.mutate(leads.filter(l => l.errors.length === 0))}
+                        disabled={!canProceed || importMutation.isPending}
+                        data-testid="button-import-leads"
+                      >
+                        {importMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Import {validationSummary.validRows} Valid Leads
+                      </Button>
+                    ) : (
+                      <div className="flex space-x-2">
+                        <Button 
+                          variant="outline"
+                          onClick={() => runBulkImport(true)}
+                          disabled={!canProceed || bulkProcessing}
+                          data-testid="button-dry-run"
+                        >
+                          {bulkProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Dry Run Validation
+                        </Button>
+                        <Button 
+                          onClick={() => runBulkImport(false)}
+                          disabled={!canProceed || bulkProcessing}
+                          data-testid="button-bulk-import"
+                        >
+                          {bulkProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Bulk Import {validationSummary.validRows} Leads
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </CardContent>
             </>
           )}
