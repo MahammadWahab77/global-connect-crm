@@ -388,7 +388,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const newLead = await storage.createLead({
             uid: leadData.uid || null,
             name: leadData.studentName,
-            email: leadData.email || `lead${Date.now()}@placeholder.com`,
+            email: leadData.email || null,
             phone: leadData.normalizedMobile || leadData.mobileNumber,
             country: leadData.normalizedCountry || leadData.country,
             course: null,

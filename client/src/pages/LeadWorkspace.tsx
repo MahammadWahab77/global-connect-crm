@@ -34,7 +34,8 @@ import {
   Users,
   FileText,
   Upload,
-  Link
+  Link,
+  Edit3
 } from 'lucide-react';
 
 // Complete pipeline stages as per documentation
@@ -1238,24 +1239,243 @@ const TaskComposer = ({ onTaskComplete, currentStage }: { onTaskComplete: (taskD
   );
 };
 
-// Lead Data Card Component
-const LeadDataCard = ({ lead, lastTask }: { lead: any; lastTask: TaskData | null }) => {
-  if (!lead) return <div>Loading...</div>;
+// Helper function to check if user is admin
+const isAdmin = () => {
+  const user = localStorage.getItem('user');
+  return user ? JSON.parse(user).role === 'admin' : false;
+};
+
+// Edit Lead Form Schema
+const editLeadSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  email: z.string().email('Invalid email').optional().or(z.literal('')),
+  phone: z.string().min(1, 'Phone is required'),
+  country: z.string().optional(),
+  course: z.string().optional(),
+  intake: z.string().optional(),
+  source: z.string().optional(),
+  passportStatus: z.string().optional(),
+});
+
+type EditLeadFormData = z.infer<typeof editLeadSchema>;
+
+// Edit Lead Modal Component
+const EditLeadModal = ({ lead, onSuccess }: { lead: any; onSuccess: () => void }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  
+  const form = useForm<EditLeadFormData>({
+    resolver: zodResolver(editLeadSchema),
+    defaultValues: {
+      name: lead.name || '',
+      email: lead.email || '',
+      phone: lead.phone || '',
+      country: lead.country || '',
+      course: lead.course || '',
+      intake: lead.intake || '',
+      source: lead.source || '',
+      passportStatus: lead.passportStatus || '',
+    }
+  });
+
+  const editLeadMutation = useMutation({
+    mutationFn: async (data: EditLeadFormData) => {
+      return await apiRequest(`/api/leads/${lead.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Lead updated successfully" });
+      queryClient.invalidateQueries({ queryKey: [`/api/leads/${lead.id}`] });
+      setIsOpen(false);
+      onSuccess();
+    },
+    onError: (error: any) => {
+      toast({ title: "Error updating lead", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const onSubmit = (data: EditLeadFormData) => {
+    editLeadMutation.mutate(data);
+  };
 
   return (
-    <Card>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" data-testid="button-edit-lead">
+          <Edit3 className="h-4 w-4 mr-1" />
+          Edit Lead
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Edit Lead Information</DialogTitle>
+          <DialogDescription>
+            Update the lead's information. All fields can be modified.
+          </DialogDescription>
+        </DialogHeader>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Name *</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Full name" data-testid="input-edit-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email</FormLabel>
+                    <FormControl>
+                      <Input {...field} type="email" placeholder="Email address" data-testid="input-edit-email" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Phone *</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Phone number" data-testid="input-edit-phone" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="country"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Country</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Country" data-testid="input-edit-country" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="course"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Course</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Course of interest" data-testid="input-edit-course" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="intake"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Intake</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Intake period" data-testid="input-edit-intake" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="source"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Source</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Lead source" data-testid="input-edit-source" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="passportStatus"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Passport Status</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="Passport status" data-testid="input-edit-passport" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+            <div className="flex justify-end space-x-2">
+              <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={editLeadMutation.isPending} data-testid="button-save-lead">
+                {editLeadMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save Changes'
+                )}
+              </Button>
+            </div>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// Lead Data Card Component
+const LeadDataCard = ({ lead, lastTask }: { lead: any; lastTask: TaskData | null }) => {
+  const [refreshKey, setRefreshKey] = useState(0);
+  
+  if (!lead) return <div>Loading...</div>;
+
+  const handleEditSuccess = () => {
+    setRefreshKey(prev => prev + 1);
+  };
+
+  return (
+    <Card key={refreshKey}>
       <CardHeader>
-        <CardTitle>Lead Data</CardTitle>
+        <div className="flex justify-between items-center">
+          <CardTitle>Lead Data</CardTitle>
+          {isAdmin() && (
+            <EditLeadModal lead={lead} onSuccess={handleEditSuccess} />
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div>
           <h4 className="font-semibold mb-2 pb-1 border-b">Personal Data</h4>
           <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
             <p><span className="font-medium">Lead ID:</span> LD-{lead.id}</p>
+            {lead.uid && <p><span className="font-medium">External UID:</span> {lead.uid}</p>}
             <p><span className="font-medium">Source:</span> {lead.source || 'CSV Import'}</p>
             <p><span className="font-medium">Name:</span> {lead.name}</p>
             <p><span className="font-medium">Created:</span> {new Date(lead.createdAt).toLocaleDateString()}</p>
-            <p><span className="font-medium">Email:</span> {lead.email}</p>
+            <p><span className="font-medium">Email:</span> {lead.email || 'Not provided'}</p>
             <p><span className="font-medium">Phone:</span> {lead.phone}</p>
             <p><span className="font-medium">Country:</span> {lead.country || '-'}</p>
             <p><span className="font-medium">Course:</span> {lead.course || '-'}</p>
