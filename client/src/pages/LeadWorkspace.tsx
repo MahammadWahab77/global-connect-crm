@@ -540,6 +540,34 @@ const TaskComposer = ({ onTaskComplete, currentStage }: { onTaskComplete: (taskD
       case 2:
         return (
           <div className="space-y-4">
+            {/* Call Status field - appears immediately after selecting Call task type */}
+            {watchedValues.taskType === 'Call' && (
+              <FormField
+                control={form.control}
+                name="callStatus"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Call Status *</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-call-status">
+                          <SelectValue placeholder="Select call status..." />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {DROPDOWN_OPTIONS.callStatus.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
             {/* Call Type specific fields */}
             {showCallFields && watchedValues.taskType === 'Call' && (
               <FormField
@@ -556,34 +584,6 @@ const TaskComposer = ({ onTaskComplete, currentStage }: { onTaskComplete: (taskD
                       </FormControl>
                       <SelectContent>
                         {DROPDOWN_OPTIONS.callType.map((option) => (
-                          <SelectItem key={option} value={option}>
-                            {option}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
-
-            {/* Call Status field - appears after selecting Call task type */}
-            {watchedValues.taskType === 'Call' && (
-              <FormField
-                control={form.control}
-                name="callStatus"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Call Status *</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-call-status">
-                          <SelectValue placeholder="Select call status..." />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {DROPDOWN_OPTIONS.callStatus.map((option) => (
                           <SelectItem key={option} value={option}>
                             {option}
                           </SelectItem>
