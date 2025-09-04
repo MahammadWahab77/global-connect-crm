@@ -112,7 +112,7 @@ const ImportLeads = () => {
   const [showOnlyDuplicates, setShowOnlyDuplicates] = useState(false);
   const [headerError, setHeaderError] = useState<string | null>(null);
 
-  const [importMode, setImportMode] = useState<'standard' | 'bulk'>('standard');
+  const [importMode, setImportMode] = useState<'standard' | 'bulk' | 'upload'>('standard');
   const [bulkProgress, setBulkProgress] = useState<any>(null);
   const [bulkProcessing, setBulkProcessing] = useState(false);
 
@@ -143,6 +143,43 @@ const ImportLeads = () => {
       toast({
         title: "Bulk Import Failed",
         description: error.message || "There was an error with the bulk import.",
+        variant: "destructive",
+      });
+    }
+  });
+
+  const fileUploadMutation = useMutation({
+    mutationFn: ({ file, dryRun, chunkSize }: { file: File, dryRun: boolean, chunkSize: number }) => {
+      const formData = new FormData();
+      formData.append('csvFile', file);
+      formData.append('dryRun', dryRun.toString());
+      formData.append('chunkSize', chunkSize.toString());
+      
+      return fetch('/api/imports/leads/upload', {
+        method: 'POST',
+        body: formData
+      }).then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      });
+    },
+    onSuccess: (result) => {
+      setBulkProgress(result);
+      setBulkProcessing(false);
+      if (!result.batchSummary) return;
+      
+      queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/stats/overview'] });
+      toast({
+        title: "Large File Import Complete!",
+        description: `${result.batchSummary.imported + result.batchSummary.importedWithIssues} leads processed successfully.`,
+      });
+    },
+    onError: (error: any) => {
+      setBulkProcessing(false);
+      toast({
+        title: "File Upload Import Failed",
+        description: error.message || "There was an error uploading and processing the file.",
         variant: "destructive",
       });
     }
@@ -466,7 +503,9 @@ const ImportLeads = () => {
     return leads.filter(lead => lead.isDuplicate);
   }, [leads, showOnlyDuplicates]);
 
-  const canProceed = validationSummary && !validationSummary.headerMismatch && validationSummary.errorRows === 0;
+  const canProceed = importMode === 'upload' 
+    ? file !== null 
+    : validationSummary && !validationSummary.headerMismatch && validationSummary.errorRows === 0;
 
   const runBulkImport = async (dryRun: boolean = false) => {
     if (!canProceed) return;
@@ -480,6 +519,19 @@ const ImportLeads = () => {
     bulkImportMutation.mutate({ 
       leadsData: validLeads, 
       dryRun 
+    });
+  };
+
+  const runFileUpload = async (dryRun: boolean = false) => {
+    if (!file) return;
+    
+    setBulkProcessing(true);
+    setBulkProgress(null);
+    
+    fileUploadMutation.mutate({ 
+      file, 
+      dryRun, 
+      chunkSize: 1000 
     });
   };
 
@@ -587,7 +639,10 @@ const ImportLeads = () => {
                   Upload & Validate CSV
                 </CardTitle>
                 <CardDescription>
-                  Upload your CSV file with the exact required headers for comprehensive validation and duplicate detection.
+                  {importMode === 'upload' 
+                    ? 'Upload your CSV file directly to the server for processing. Ideal for files with 5000+ leads.'
+                    : 'Upload your CSV file with the exact required headers for comprehensive validation and duplicate detection.'
+                  }
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -637,7 +692,17 @@ const ImportLeads = () => {
                   </div>
                   <p className="text-xs text-gray-500">CSV files only</p>
                   
-                  {file && !headerError && validationSummary && (
+                  {file && importMode === 'upload' && (
+                    <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                      <Upload className="mx-auto h-8 w-8 text-blue-500 mb-2" />
+                      <div className="text-blue-700 font-medium">{file.name}</div>
+                      <div className="text-blue-600 text-sm">
+                        Ready for server-side processing • {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </div>
+                    </div>
+                  )}
+                  
+                  {file && !headerError && validationSummary && importMode !== 'upload' && (
                     <div className="mt-6 p-4 bg-green-50 rounded-lg">
                       <CheckCircle className="mx-auto h-8 w-8 text-green-500 mb-2" />
                       <div className="text-green-700 font-medium">{file.name}</div>
@@ -661,12 +726,35 @@ const ImportLeads = () => {
                       </AlertDescription>
                     </Alert>
                   )}
+
+                  {/* Upload Mode Direct Actions */}
+                  {importMode === 'upload' && file && (
+                    <div className="mt-6 flex justify-center space-x-4">
+                      <Button 
+                        variant="outline"
+                        onClick={() => runFileUpload(true)}
+                        disabled={bulkProcessing}
+                        data-testid="button-upload-dry-run"
+                      >
+                        {bulkProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Dry Run Upload
+                      </Button>
+                      <Button 
+                        onClick={() => runFileUpload(false)}
+                        disabled={bulkProcessing}
+                        data-testid="button-upload-execute"
+                      >
+                        {bulkProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Execute Upload
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </>
           )}
 
-          {step === 2 && validationSummary && (
+          {step === 2 && validationSummary && importMode !== 'upload' && (
             <>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -798,7 +886,7 @@ const ImportLeads = () => {
                           name="importMode"
                           value="standard"
                           checked={importMode === 'standard'}
-                          onChange={(e) => setImportMode(e.target.value as 'standard' | 'bulk')}
+                          onChange={(e) => setImportMode(e.target.value as 'standard' | 'bulk' | 'upload')}
                           className="mr-2"
                         />
                         Standard Import
@@ -809,10 +897,21 @@ const ImportLeads = () => {
                           name="importMode"
                           value="bulk"
                           checked={importMode === 'bulk'}
-                          onChange={(e) => setImportMode(e.target.value as 'standard' | 'bulk')}
+                          onChange={(e) => setImportMode(e.target.value as 'standard' | 'bulk' | 'upload')}
                           className="mr-2"
                         />
                         Bulk Import (4K+ leads)
+                      </label>
+                      <label className="flex items-center">
+                        <input
+                          type="radio"
+                          name="importMode"
+                          value="upload"
+                          checked={importMode === 'upload'}
+                          onChange={(e) => setImportMode(e.target.value as 'standard' | 'bulk' | 'upload')}
+                          className="mr-2"
+                        />
+                        File Upload (5K+ leads)
                       </label>
                     </div>
                   </div>
@@ -828,6 +927,21 @@ const ImportLeads = () => {
                           <li>Detailed validation logs and normalization reports</li>
                           <li>Dry-run mode for validation without committing</li>
                           <li>Never blocks on individual row errors</li>
+                        </ul>
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {importMode === 'upload' && (
+                    <Alert className="mb-4">
+                      <Upload className="h-4 w-4" />
+                      <AlertDescription>
+                        <strong>File Upload Features:</strong>
+                        <ul className="list-disc list-inside mt-1 text-sm">
+                          <li>Direct file upload bypasses browser memory limits</li>
+                          <li>Handles 5000+ leads without "entity too large" errors</li>
+                          <li>Server-side CSV parsing for maximum efficiency</li>
+                          <li>All bulk processing features included</li>
                         </ul>
                       </AlertDescription>
                     </Alert>
@@ -904,7 +1018,7 @@ const ImportLeads = () => {
                         {importMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                         Import {validationSummary.validRows} Valid Leads
                       </Button>
-                    ) : (
+                    ) : importMode === 'bulk' ? (
                       <div className="flex space-x-2">
                         <Button 
                           variant="outline"
@@ -922,6 +1036,26 @@ const ImportLeads = () => {
                         >
                           {bulkProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                           Bulk Import {validationSummary.validRows} Leads
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="flex space-x-2">
+                        <Button 
+                          variant="outline"
+                          onClick={() => runFileUpload(true)}
+                          disabled={!file || bulkProcessing}
+                          data-testid="button-file-dry-run"
+                        >
+                          {bulkProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Dry Run File Upload
+                        </Button>
+                        <Button 
+                          onClick={() => runFileUpload(false)}
+                          disabled={!file || bulkProcessing}
+                          data-testid="button-file-upload"
+                        >
+                          {bulkProcessing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          Execute File Upload
                         </Button>
                       </div>
                     )}

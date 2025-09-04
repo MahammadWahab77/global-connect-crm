@@ -2,6 +2,9 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
+import multer from "multer";
+import fs from "fs";
+import path from "path";
 
 // Types for bulk import
 interface ValidationLog {
@@ -507,6 +510,21 @@ function generateNormalizedPayloadJSONL(validationLog: ValidationLog[]): string 
     .join('\n');
 }
 
+// Configure multer for file uploads
+const upload = multer({
+  dest: 'uploads/',
+  limits: {
+    fileSize: 100 * 1024 * 1024, // 100MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.originalname.endsWith('.csv')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'));
+    }
+  }
+});
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
   app.post("/api/auth/login", async (req, res) => {
@@ -839,6 +857,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(result);
     } catch (error) {
       console.error("Bulk import error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // File Upload endpoint for large CSV imports (5000+ leads)
+  app.post("/api/imports/leads/upload", upload.single('csvFile'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No CSV file uploaded" });
+      }
+
+      const { dryRun = 'false', chunkSize = '1000' } = req.body;
+      const isDryRun = dryRun === 'true';
+      const processChunkSize = parseInt(chunkSize) || 1000;
+
+      // Read and parse CSV file stream
+      const csvContent = fs.readFileSync(req.file.path, 'utf-8');
+      
+      // Parse CSV content (simple CSV parser for large files)
+      const lines = csvContent.split('\n').filter(line => line.trim());
+      if (lines.length === 0) {
+        // Clean up uploaded file
+        fs.unlinkSync(req.file.path);
+        return res.status(400).json({ error: "Empty CSV file" });
+      }
+
+      // Extract headers and data
+      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+      const dataLines = lines.slice(1);
+
+      // Convert CSV rows to objects
+      const leads = dataLines.map((line, index) => {
+        const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
+        const lead: any = {};
+        
+        headers.forEach((header, i) => {
+          const key = header === 'Student Name' ? 'studentName' :
+                     header === 'Lead Created Date' ? 'leadCreatedDate' :
+                     header === 'MobileNumber' ? 'mobileNumber' :
+                     header === 'Current Stage' ? 'currentStage' :
+                     header === 'Passport Status' ? 'passportStatus' :
+                     header.toLowerCase();
+          lead[key] = values[i] || '';
+        });
+        
+        return lead;
+      });
+
+      // Process through bulk import system
+      const result = await processBulkLeadImport(leads, isDryRun, processChunkSize, storage);
+      
+      // Clean up uploaded file
+      fs.unlinkSync(req.file.path);
+      
+      res.json(result);
+    } catch (error) {
+      console.error("File upload import error:", error);
+      // Clean up file on error
+      if (req.file) {
+        try {
+          fs.unlinkSync(req.file.path);
+        } catch (cleanupError) {
+          console.error("Error cleaning up file:", cleanupError);
+        }
+      }
       res.status(500).json({ error: "Internal server error" });
     }
   });
