@@ -334,14 +334,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const importedLeads = [];
       const errors = [];
       let managerId = null;
+      let counselors: any[] = [];
+      let defaultCounselor: any = null;
 
-      // Find manager ID (Anupriya)
+      // Find manager ID (Anupriya) and fetch all counselors
       try {
         const users = await storage.getAllUsers();
         const manager = users.find(u => u.name.toLowerCase().includes('anupriya') || u.role === 'admin');
         managerId = manager?.id || null;
+        
+        // Get all counselors for smart assignment
+        counselors = users.filter(u => u.role === 'counselor');
+        
+        // Find default counselor (Likitha)
+        defaultCounselor = counselors.find(c => c.name.toLowerCase().includes('likitha'));
       } catch (error) {
-        console.log("Could not find manager, using null");
+        console.log("Could not find manager or counselors, using null");
       }
 
       for (let i = 0; i < leads.length; i++) {
@@ -353,34 +361,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
             continue;
           }
 
-          // Create lead with all new fields
+          // Smart counselor assignment logic
+          let assignedCounselorId = null;
+          let assignedStage = "Yet to Assign";
+          
+          if (leadData.counsellors && leadData.counsellors.trim()) {
+            // Case-insensitive search for matching counselor
+            const counselorName = leadData.counsellors.trim().toLowerCase();
+            const matchedCounselor = counselors.find(c => 
+              c.name.toLowerCase().includes(counselorName) || 
+              counselorName.includes(c.name.toLowerCase())
+            );
+            
+            if (matchedCounselor) {
+              // Found exact match
+              assignedCounselorId = matchedCounselor.id;
+              assignedStage = "Yet to Contact";
+            } else if (defaultCounselor) {
+              // No match found, assign to default counselor (Likitha)
+              assignedCounselorId = defaultCounselor.id;
+              assignedStage = "Yet to Contact";
+            }
+          }
+
+          // Create lead with enhanced assignment logic
           const newLead = await storage.createLead({
             uid: leadData.uid || null,
             name: leadData.studentName,
-            email: leadData.email || `lead${Date.now()}@placeholder.com`, // Generate placeholder if missing
+            email: leadData.email || `lead${Date.now()}@placeholder.com`,
             phone: leadData.normalizedMobile || leadData.mobileNumber,
             country: leadData.normalizedCountry || leadData.country,
-            course: null, // Not provided in new CSV format
+            course: null,
             intake: leadData.normalizedIntake || leadData.intake,
             source: leadData.source,
-            currentStage: leadData.currentStage,
-            counselorId: null, // Will be assigned later
+            currentStage: leadData.currentStage || assignedStage,
+            counselorId: assignedCounselorId,
             managerId: managerId,
             prevConsultancy: null,
             passportStatus: leadData.passportStatus || null,
-            remarks: leadData.remarks || null,
+            remarks: null, // We'll handle remarks separately
             counsellors: leadData.counsellors || null
           });
 
+          // Create initial remarks entry from CSV if remarks exist
+          if (leadData.remarks && leadData.remarks.trim()) {
+            try {
+              await storage.createRemark({
+                leadId: newLead.id,
+                userId: assignedCounselorId || managerId || 1,
+                content: `CSV Import: ${leadData.remarks.trim()}`,
+                isVisible: true
+              });
+            } catch (remarkError) {
+              console.log(`Could not create remark for lead ${newLead.id}:`, remarkError);
+            }
+          }
+
           // Create initial stage history entry
-          if (leadData.currentStage && leadData.currentStage !== "Yet to Assign") {
+          if ((leadData.currentStage || assignedStage) && (leadData.currentStage || assignedStage) !== "Yet to Assign") {
             try {
               await storage.createStageHistory({
                 leadId: newLead.id,
                 fromStage: null,
-                toStage: leadData.currentStage,
-                userId: managerId || 1, // Fallback to ID 1
-                reason: "Initial import from CSV",
+                toStage: leadData.currentStage || assignedStage,
+                userId: assignedCounselorId || managerId || 1,
+                reason: `Initial import from CSV${assignedCounselorId ? ` - Assigned to counselor` : ''}`,
                 createdAt: leadData.leadCreatedDate && !leadData.defaultedDate ? 
                   new Date(leadData.leadCreatedDate) : new Date()
               });
