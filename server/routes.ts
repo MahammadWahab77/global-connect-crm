@@ -236,6 +236,15 @@ async function normalizeAndValidateLead(rawLead: any, log: ValidationLog, fieldI
     log.fixesApplied.push('Set default name for missing student name');
   }
 
+  // Current Stage handling (required)
+  if (rawLead.currentStage && rawLead.currentStage.trim()) {
+    normalized.currentStage = rawLead.currentStage.trim();
+  } else {
+    log.errors.push('Missing required current stage');
+    normalized.currentStage = 'Yet to Assign';
+    log.fixesApplied.push('Set default stage for missing current stage');
+  }
+
   // Lead Created Date with resilient parsing
   if (rawLead.leadCreatedDate) {
     try {
@@ -304,8 +313,8 @@ async function normalizeAndValidateLead(rawLead: any, log: ValidationLog, fieldI
     normalized.email = null; // Now nullable
   }
 
-  // Other fields
-  normalized.source = rawLead.source && rawLead.source.trim() ? rawLead.source.trim() : 'Unknown';
+  // Other fields (now optional)
+  normalized.source = rawLead.source && rawLead.source.trim() ? rawLead.source.trim() : null;
   normalized.passportStatus = rawLead.passportStatus && rawLead.passportStatus.trim() ? rawLead.passportStatus.trim() : null;
   normalized.remarks = rawLead.remarks && rawLead.remarks.trim() ? rawLead.remarks.trim() : null;
   normalized.counsellors = rawLead.counsellors && rawLead.counsellors.trim() ? rawLead.counsellors.trim() : null;

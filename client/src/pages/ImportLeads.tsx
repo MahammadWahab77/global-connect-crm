@@ -29,7 +29,7 @@ const REQUIRED_HEADERS = [
   'Passport Status'
 ];
 
-const REQUIRED_FIELDS = ['Student Name', 'Country', 'Source', 'Current Stage'];
+const REQUIRED_FIELDS = ['Student Name', 'Current Stage'];
 
 interface ParsedLead {
   uid: string;
@@ -297,10 +297,7 @@ const ImportLeads = () => {
 
       // Validate required fields
       REQUIRED_FIELDS.forEach(field => {
-        const key = field === 'Student Name' ? 'studentName' : 
-                   field === 'Country' ? 'country' :
-                   field === 'Source' ? 'source' :
-                   'currentStage';
+        const key = field === 'Student Name' ? 'studentName' : 'currentStage';
         if (!lead[key as keyof ParsedLead]) {
           lead.errors.push(`Missing required field: ${field}`);
         }
