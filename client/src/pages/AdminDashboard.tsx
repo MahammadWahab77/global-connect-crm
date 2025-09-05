@@ -1,19 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Users, UserPlus, TrendingUp, FileText, Loader2 } from 'lucide-react';
+import { Users, UserPlus, TrendingUp, FileText, Loader2, RefreshCw } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { apiRequest } from '../lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [stats, setStats] = useState(null);
   
   // Fetch all leads for recent activity
   const { data: allLeads = [], isLoading: leadsLoading } = useQuery({
     queryKey: ['/api/leads'],
     queryFn: () => apiRequest('/api/leads')
+  });
+
+  // Migration mutation for empty counselor leads
+  const migrationMutation = useMutation({
+    mutationFn: () => apiRequest('/api/leads/migrate-empty-counselors', {
+      method: 'POST'
+    }),
+    onSuccess: (data) => {
+      toast({
+        title: "Migration Completed",
+        description: data.message || "Leads have been successfully migrated",
+      });
+      // Refetch leads to update dashboard stats
+      window.location.reload();
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Migration Failed", 
+        description: error.message || "Failed to migrate leads",
+        variant: "destructive",
+      });
+    },
   });
 
   // Get recent leads (last 5 updated) with time calculations
@@ -171,6 +195,19 @@ const AdminDashboard = () => {
               >
                 <FileText className="mr-2 h-4 w-4" />
                 View Reports
+              </Button>
+              <Button 
+                className="w-full justify-start" 
+                variant="outline"
+                onClick={() => migrationMutation.mutate()}
+                disabled={migrationMutation.isPending}
+              >
+                {migrationMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                )}
+                Migrate Empty Counselor Leads
               </Button>
             </CardContent>
           </Card>

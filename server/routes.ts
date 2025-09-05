@@ -325,10 +325,25 @@ async function normalizeAndValidateLead(rawLead: any, log: ValidationLog, fieldI
   return normalized;
 }
 
+// Enhanced stage assignment logic to handle empty counselor fields
+function determineOptimalStage(counselorId: number | null, requestedStage?: string): string {
+  // If a specific stage was requested in CSV, respect it (backward compatibility)
+  if (requestedStage && requestedStage.trim()) {
+    return requestedStage.trim();
+  }
+  
+  // New logic: if no counselor assigned, mark as "Yet to Contact" instead of "Yet to Assign"
+  if (!counselorId) {
+    return "Yet to Contact";
+  }
+  
+  // If counselor is assigned, mark as "Yet to Contact" (ready for counselor to reach out)
+  return "Yet to Contact";
+}
+
 // Business logic application (counselor assignment, stage calculation)
 async function applyBusinessLogic(normalized: any, counselors: any[], defaultCounselor: any, managerId: number | null): Promise<any> {
   let assignedCounselorId = null;
-  let assignedStage = "Yet to Assign";
   
   if (normalized.counsellors && normalized.counsellors.trim()) {
     const counselorName = normalized.counsellors.trim().toLowerCase();
@@ -339,16 +354,17 @@ async function applyBusinessLogic(normalized: any, counselors: any[], defaultCou
     
     if (matchedCounselor) {
       assignedCounselorId = matchedCounselor.id;
-      assignedStage = "Yet to Contact";
     } else if (defaultCounselor) {
       assignedCounselorId = defaultCounselor.id;
-      assignedStage = "Yet to Contact";
     }
   }
 
+  // Use enhanced stage assignment logic
+  const optimalStage = determineOptimalStage(assignedCounselorId, normalized.currentStage);
+
   return {
     counselorId: assignedCounselorId,
-    currentStage: normalized.currentStage || assignedStage
+    currentStage: optimalStage
   };
 }
 
@@ -677,6 +693,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ success: true });
     } catch (error) {
       console.error("Bulk assign error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // API endpoint to migrate leads with empty counselor fields
+  app.post("/api/leads/migrate-empty-counselors", async (req, res) => {
+    try {
+      const result = await storage.migrateEmptyCounselorLeads();
+      res.json({
+        success: true,
+        message: `Successfully updated ${result.updated} leads from "Yet to Assign" to "Yet to Contact"`,
+        ...result
+      });
+    } catch (error) {
+      console.error("Migration error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
