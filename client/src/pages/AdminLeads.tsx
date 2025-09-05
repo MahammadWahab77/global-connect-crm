@@ -73,8 +73,8 @@ const AdminLeads = () => {
   const filteredLeads = leads.filter((lead: any) => {
     const matchesStage = selectedStages.length === 0 || selectedStages.includes(lead.currentStage);
     const matchesSearch = lead.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         lead.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         lead.phone.includes(searchTerm);
+                         (lead.email && lead.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
+                         (lead.phone && lead.phone.includes(searchTerm));
     const matchesCountry = !countryFilter || countryFilter === 'all-countries' || lead.country === countryFilter;
     const matchesIntake = !intakeFilter || intakeFilter === 'all-intakes' || lead.intake === intakeFilter;
     const matchesSource = !sourceFilter || sourceFilter === 'all-sources' || lead.source === sourceFilter;
