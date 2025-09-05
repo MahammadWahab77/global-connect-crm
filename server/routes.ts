@@ -591,6 +591,125 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Production data seeding endpoint to create necessary users
+  app.post("/api/auth/seed-users", async (req, res) => {
+    try {
+      const { adminKey } = req.body;
+      
+      // Simple admin check - only allow if specific key is provided
+      if (adminKey !== "SEED_PRODUCTION_USERS_2025") {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      // Define essential users that should exist in production
+      const essentialUsers = [
+        {
+          name: "Admin User",
+          email: "gundluru.mahammadwahab@nxtwave.co.in",
+          password: "Nxtwave@1234", // Plain text for demo
+          role: "admin",
+          phone: null,
+          isActive: true
+        },
+        {
+          name: "Anupriya",
+          email: "angupriya.bharaththangam@nxtwave.co.in",
+          password: await bcrypt.hash("Nxtwave@1234", 10), // Consistent password
+          role: "admin",
+          phone: null,
+          isActive: true
+        },
+        {
+          name: "Likitha",
+          email: "likhitha.nyasala@nxtwave.co.in", 
+          password: await bcrypt.hash("Nxtwave@1234", 10),
+          role: "counselor",
+          phone: null,
+          isActive: true
+        },
+        {
+          name: "BASHIR SHAIK",
+          email: "bashir.shaik@nxtwave.co.in",
+          password: await bcrypt.hash("Nxtwave@1234", 10),
+          role: "counselor", 
+          phone: null,
+          isActive: true
+        },
+        {
+          name: "Sanjana",
+          email: "madishetti.sanjana@nxtwave.tech",
+          password: await bcrypt.hash("Nxtwave@1234", 10),
+          role: "counselor",
+          phone: null,
+          isActive: true
+        },
+        {
+          name: "Varsha", 
+          email: "keesari.varsha@nxtwave.tech",
+          password: await bcrypt.hash("Nxtwave@1234", 10),
+          role: "counselor",
+          phone: null,
+          isActive: true
+        },
+        {
+          name: "Priyanka",
+          email: "tiruveedula.priyanka@nxtwave.tech",
+          password: await bcrypt.hash("Nxtwave@1234", 10),
+          role: "counselor",
+          phone: null,
+          isActive: true
+        }
+      ];
+
+      const results = [];
+      
+      for (const userData of essentialUsers) {
+        try {
+          // Check if user already exists
+          const existingUser = await storage.getUserByEmail(userData.email);
+          
+          if (existingUser) {
+            results.push({ 
+              email: userData.email, 
+              name: userData.name,
+              status: 'already_exists',
+              id: existingUser.id 
+            });
+          } else {
+            // Create new user
+            const newUser = await storage.createUser({
+              ...userData,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+            results.push({ 
+              email: userData.email, 
+              name: userData.name,
+              status: 'created',
+              id: newUser.id 
+            });
+          }
+        } catch (error) {
+          results.push({ 
+            email: userData.email, 
+            name: userData.name,
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+        }
+      }
+
+      res.json({ 
+        message: "User seeding completed", 
+        results,
+        note: "All users have password: Nxtwave@1234"
+      });
+    } catch (error) {
+      console.error("User seeding error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Authentication routes
   app.post("/api/auth/login", async (req, res) => {
     try {

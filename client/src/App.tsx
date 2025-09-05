@@ -10,6 +10,7 @@ import ManageUsers from './pages/ManageUsers';
 import ImportLeads from './pages/ImportLeads';
 import ViewReports from './pages/ViewReports';
 import LeadWorkspace from './pages/LeadWorkspace';
+import ProductionSetup from './pages/ProductionSetup';
 import NotFound from './pages/NotFound';
 import Index from './pages/Index';
 
@@ -77,6 +78,11 @@ function App() {
           <Route path="/admin/reports" element={
             <ProtectedRoute requiredRole="admin">
               <ViewReports />
+            </ProtectedRoute>
+          } />
+          <Route path="/admin/production-setup" element={
+            <ProtectedRoute requiredRole="admin">
+              <ProductionSetup />
             </ProtectedRoute>
           } />
           
