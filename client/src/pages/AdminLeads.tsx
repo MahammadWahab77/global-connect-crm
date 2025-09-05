@@ -51,6 +51,7 @@ const AdminLeads = () => {
   const [countryFilter, setCountryFilter] = useState('');
   const [intakeFilter, setIntakeFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
+  const [counselorFilter, setCounselorFilter] = useState('');
 
   // Fetch leads
   const { data: leads = [], isLoading: leadsLoading } = useQuery({
@@ -78,8 +79,11 @@ const AdminLeads = () => {
     const matchesCountry = !countryFilter || countryFilter === 'all-countries' || lead.country === countryFilter;
     const matchesIntake = !intakeFilter || intakeFilter === 'all-intakes' || lead.intake === intakeFilter;
     const matchesSource = !sourceFilter || sourceFilter === 'all-sources' || lead.source === sourceFilter;
+    const matchesCounselor = !counselorFilter || counselorFilter === 'all-counselors' || 
+      (lead.counselorId && lead.counselorId.toString() === counselorFilter) ||
+      (counselorFilter === 'unassigned' && !lead.counselorId);
     
-    return matchesStage && matchesSearch && matchesCountry && matchesIntake && matchesSource;
+    return matchesStage && matchesSearch && matchesCountry && matchesIntake && matchesSource && matchesCounselor;
   });
 
   // Smart counselor suggestions based on current lead selection
@@ -319,8 +323,26 @@ const AdminLeads = () => {
               </Select>
             </div>
 
+            {/* Counselor Filter */}
+            <div className="flex-shrink-0 w-40">
+              <Select value={counselorFilter} onValueChange={setCounselorFilter}>
+                <SelectTrigger data-testid="filter-counselor">
+                  <SelectValue placeholder="All Counselors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all-counselors">All Counselors</SelectItem>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                  {counselors.map((counselor: any) => (
+                    <SelectItem key={counselor.id} value={counselor.id.toString()}>
+                      {counselor.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Clear Filters */}
-            {(countryFilter || intakeFilter || sourceFilter) && (
+            {(countryFilter || intakeFilter || sourceFilter || counselorFilter) && (
               <Button 
                 variant="outline" 
                 size="sm" 
@@ -328,6 +350,7 @@ const AdminLeads = () => {
                   setCountryFilter('');
                   setIntakeFilter('');
                   setSourceFilter('');
+                  setCounselorFilter('');
                 }}
                 data-testid="button-clear-filters"
               >
@@ -341,12 +364,15 @@ const AdminLeads = () => {
         <div className="mb-6">
           <div className="text-sm text-gray-600">
             Showing {filteredLeads.length} leads {selectedStages.length === 0 ? 'across all stages' : selectedStages.length === 1 ? `in ${selectedStages[0]} stage` : `in ${selectedStages.length} selected stages`}
-            {(countryFilter || intakeFilter || sourceFilter) && (
+            {(countryFilter || intakeFilter || sourceFilter || counselorFilter) && (
               <span className="ml-2 text-orange-600">
                 (filtered by {[
                   countryFilter && `Country: ${countryFilter}`,
                   intakeFilter && `Intake: ${intakeFilter}`,
-                  sourceFilter && `Source: ${sourceFilter}`
+                  sourceFilter && `Source: ${sourceFilter}`,
+                  counselorFilter && counselorFilter === 'unassigned' ? 'Counselor: Unassigned' : 
+                    counselorFilter && counselors.find((c: any) => c.id.toString() === counselorFilter) ? 
+                    `Counselor: ${counselors.find((c: any) => c.id.toString() === counselorFilter).name}` : null
                 ].filter(Boolean).join(', ')})
               </span>
             )}
@@ -403,12 +429,15 @@ const AdminLeads = () => {
         <div className="mb-6">
           <div className="text-sm text-gray-600">
             Showing {filteredLeads.length} leads {selectedStages.length === 0 ? 'across all stages' : selectedStages.length === 1 ? `in ${selectedStages[0]} stage` : `in ${selectedStages.length} selected stages`}
-            {(countryFilter || intakeFilter || sourceFilter) && (
+            {(countryFilter || intakeFilter || sourceFilter || counselorFilter) && (
               <span className="ml-2 text-orange-600">
                 (filtered by {[
                   countryFilter && `Country: ${countryFilter}`,
                   intakeFilter && `Intake: ${intakeFilter}`,
-                  sourceFilter && `Source: ${sourceFilter}`
+                  sourceFilter && `Source: ${sourceFilter}`,
+                  counselorFilter && counselorFilter === 'unassigned' ? 'Counselor: Unassigned' : 
+                    counselorFilter && counselors.find((c: any) => c.id.toString() === counselorFilter) ? 
+                    `Counselor: ${counselors.find((c: any) => c.id.toString() === counselorFilter).name}` : null
                 ].filter(Boolean).join(', ')})
               </span>
             )}
