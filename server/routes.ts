@@ -542,10 +542,61 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Test endpoint to check authentication setup
+  app.get("/api/auth/test", async (req, res) => {
+    try {
+      const users = await storage.getAllUsers();
+      const testResults = users.map(user => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        passwordType: user.password.startsWith('$2b$') || user.password.startsWith('$2a$') ? 'hashed' : 'plain'
+      }));
+      res.json({ users: testResults, nodeEnv: process.env.NODE_ENV || 'development' });
+    } catch (error) {
+      console.error("Auth test error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Admin utility to ensure all passwords are properly hashed
+  app.post("/api/auth/hash-passwords", async (req, res) => {
+    try {
+      const { adminKey } = req.body;
+      
+      // Simple admin check - only allow if specific key is provided
+      if (adminKey !== "HASH_ADMIN_PASSWORDS_2025") {
+        return res.status(403).json({ error: "Unauthorized" });
+      }
+
+      const users = await storage.getAllUsers();
+      const updates = [];
+
+      for (const user of users) {
+        // Only hash plain text passwords
+        if (!user.password.startsWith('$2b$') && !user.password.startsWith('$2a$')) {
+          const hashedPassword = await bcrypt.hash(user.password, 10);
+          await storage.updateUser(user.id, { password: hashedPassword });
+          updates.push({ id: user.id, name: user.name, email: user.email, status: 'hashed' });
+        } else {
+          updates.push({ id: user.id, name: user.name, email: user.email, status: 'already_hashed' });
+        }
+      }
+
+      res.json({ message: "Password hashing completed", updates });
+    } catch (error) {
+      console.error("Password hashing error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // Authentication routes
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
+      
+      console.log("Login attempt for email:", email, "in environment:", process.env.NODE_ENV || 'development');
       
       if (!email || !password) {
         return res.status(400).json({ error: "Email and password required" });
@@ -553,16 +604,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const user = await storage.getUserByEmail(email);
       if (!user) {
+        console.log("User not found for email:", email);
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
-      // For demo purposes, allow simple password comparison
-      // In production, use proper password hashing
-      const isValid = password === user.password || await bcrypt.compare(password, user.password);
+      console.log("User found:", user.name, "Password type:", user.password.startsWith('$2b$') ? 'hashed' : 'plain');
+
+      // Handle both plain text and hashed passwords for flexibility
+      let isValid = false;
+      
+      try {
+        // First try bcrypt comparison for hashed passwords
+        if (user.password.startsWith('$2b$') || user.password.startsWith('$2a$')) {
+          console.log("Attempting bcrypt comparison...");
+          isValid = await bcrypt.compare(password, user.password);
+          console.log("Bcrypt comparison result:", isValid);
+        } else {
+          // Fallback to plain text comparison for demo accounts
+          console.log("Attempting plain text comparison...");
+          isValid = password === user.password;
+          console.log("Plain text comparison result:", isValid);
+        }
+      } catch (error) {
+        console.error("Password comparison error:", error);
+        // If bcrypt fails, try plain text comparison as fallback
+        console.log("Bcrypt failed, trying plain text fallback...");
+        isValid = password === user.password;
+        console.log("Fallback comparison result:", isValid);
+      }
+      
       if (!isValid) {
+        console.log("Authentication failed for user:", email);
         return res.status(401).json({ error: "Invalid credentials" });
       }
 
+      console.log("Authentication successful for user:", email);
       // Return user without password
       const { password: _, ...userWithoutPassword } = user;
       res.json({ user: userWithoutPassword });
