@@ -20,7 +20,7 @@ export const leads = pgTable("leads", {
   id: serial("id").primaryKey(),
   uid: text("uid"), // External UID from CSV
   name: text("name").notNull(),
-  email: text("email").notNull(),
+  email: text("email"),
   phone: text("phone").notNull(),
   country: text("country"),
   course: text("course"),

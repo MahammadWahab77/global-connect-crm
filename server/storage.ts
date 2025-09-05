@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { Pool, neonConfig } from "@neondatabase/serverless";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, isNull } from "drizzle-orm";
 import ws from "ws";
 import { 
   users, 
@@ -34,6 +34,7 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, user: Partial<InsertUser>): Promise<User>;
   getAllUsers(): Promise<User[]>;
   getAllCounselors(): Promise<User[]>;
   
@@ -82,6 +83,11 @@ export class DatabaseStorage implements IStorage {
 
   async createUser(user: InsertUser): Promise<User> {
     const result = await db.insert(users).values(user).returning();
+    return result[0];
+  }
+
+  async updateUser(id: number, user: Partial<InsertUser>): Promise<User> {
+    const result = await db.update(users).set(user).where(eq(users.id, id)).returning();
     return result[0];
   }
 
@@ -253,6 +259,61 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
+  // Enhanced function to fix stage assignment for leads with empty counselor fields
+  async migrateEmptyCounselorLeads(): Promise<{ updated: number; details: any[] }> {
+    // Find all leads that are in "Yet to Assign" stage with no counselor assigned
+    const leadsToUpdate = await db
+      .select({
+        id: leads.id,
+        name: leads.name,
+        currentStage: leads.currentStage,
+        counselorId: leads.counselorId
+      })
+      .from(leads)
+      .where(and(
+        eq(leads.currentStage, "Yet to Assign"),
+        isNull(leads.counselorId)
+      ));
+
+    const updates = [];
+    for (const lead of leadsToUpdate) {
+      try {
+        // Update stage from "Yet to Assign" to "Yet to Contact"
+        await db.update(leads).set({ 
+          currentStage: "Yet to Contact",
+          updatedAt: new Date()
+        }).where(eq(leads.id, lead.id));
+        
+        // Add stage history entry for the migration
+        await db.insert(stageHistory).values({
+          leadId: lead.id,
+          fromStage: "Yet to Assign",
+          toStage: "Yet to Contact",
+          userId: 1, // System user ID
+          reason: "Automated migration: Empty counselor field detected"
+        });
+
+        updates.push({
+          leadId: lead.id,
+          leadName: lead.name,
+          status: 'updated'
+        });
+      } catch (error) {
+        updates.push({
+          leadId: lead.id,
+          leadName: lead.name,
+          status: 'failed',
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
+    return {
+      updated: updates.filter(u => u.status === 'updated').length,
+      details: updates
+    };
+  }
+
   async getTasksByLead(leadId: number): Promise<Task[]> {
     return await db
       .select({
@@ -262,6 +323,7 @@ export class DatabaseStorage implements IStorage {
         userName: users.name,
         taskType: tasks.taskType,
         callType: tasks.callType,
+        callStatus: tasks.callStatus,
         connectStatus: tasks.connectStatus,
         sessionStatus: tasks.sessionStatus,
         sessionDate: tasks.sessionDate,
