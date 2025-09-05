@@ -16,24 +16,24 @@ import { useToast } from '@/hooks/use-toast';
 
 // 18 stages for the CRM pipeline
 const LEAD_STAGES = [
-  'Yet to Assign',
-  'Assigned',
-  'Initial Contact',
-  'Interest Confirmed',
-  'Documents Requested',
-  'Documents Received',
-  'Profile Evaluation',
-  'University Shortlisting',
-  'Application Preparation',
-  'Application Submitted',
-  'Offer Received',
-  'Offer Accepted',
-  'Visa Documentation',
-  'Visa Applied',
-  'Visa Approved',
-  'Pre-departure',
-  'Departed',
-  'Enrolled'
+  'Yet to Assign', 
+  'Yet to Contact', 
+  'Contact Again', 
+  'Not Interested', 
+  'Planning Later', 
+  'Yet to Decide', 
+  'Irrelevant Lead', 
+  'Registered for Session', 
+  'Session Completed', 
+  'Docs Submitted', 
+  'Shortlisted Univ.', 
+  'Application in Progress', 
+  'Offer Letter Received',
+  'Deposit Paid', 
+  'Visa Received', 
+  'Flight and Accommodation Booked', 
+  'Tuition Fee Paid', 
+  'Commission Received'
 ];
 
 

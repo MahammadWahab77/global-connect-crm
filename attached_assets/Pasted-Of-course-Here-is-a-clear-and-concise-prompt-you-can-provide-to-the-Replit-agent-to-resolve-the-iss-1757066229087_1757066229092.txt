@@ -1,0 +1,80 @@
+Of course. Here is a clear and concise prompt you can provide to the Replit agent to resolve the issue.
+
+Prompt for Replit Agent:
+
+Hello, I'm experiencing an issue with my CRM application. When I update a lead's stage on the lead workspace page, the change isn't reflected on the main admin leads page. It appears to be a caching problem with React Query. Additionally, the list of lead stages is inconsistent between the two pages.
+
+Please apply the following fixes:
+
+1. Invalidate the Main Leads List Cache
+In client/src/pages/LeadWorkspace.tsx, the updateStageMutation only invalidates the cache for the specific lead being viewed. Please modify the onSuccess handler to also invalidate the main ['/api/leads'] query.
+
+File to modify: client/src/pages/LeadWorkspace.tsx
+
+Code to add:
+Inside the onSuccess function of the updateStageMutation, please add this line:
+queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
+
+Here is the full updateStageMutation for reference:
+
+TypeScript
+
+// client/src/pages/LeadWorkspace.tsx
+
+  const updateStageMutation = useMutation({
+    mutationFn: ({ stage, reason }: { stage: string; reason?: string }) =>
+      apiRequest(`/api/leads/${leadId}/stage`, {
+        method: 'PUT',
+        body: JSON.stringify({ stage, userId: currentUser.id, reason })
+      }),
+    onSuccess: () => {
+      // Add this line:
+      queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
+
+      queryClient.invalidateQueries({ queryKey: [`/api/leads/${leadId}`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/leads/${leadId}/history`] });
+      toast({ title: 'Success', description: 'Stage updated successfully' });
+      setIsStageModalOpen(false);
+      setIsAdminStageModalOpen(false);
+    }
+  });
+2. Unify the Pipeline Stage Lists
+The list of stages in AdminLeads.tsx is incomplete. Please replace the LEAD_STAGES constant in that file with the full 18-stage list from LeadWorkspace.tsx.
+
+File to modify: client/src/pages/AdminLeads.tsx
+
+Action:
+Replace the existing LEAD_STAGES array with the following:
+
+TypeScript
+
+// client/src/pages/AdminLeads.tsx
+
+const LEAD_STAGES = [
+  'Yet to Assign', 
+  'Yet to Contact', 
+  'Contact Again', 
+  'Not Interested', 
+  'Planning Later', 
+  'Yet to Decide', 
+  'Irrelevant Lead', 
+  'Registered for Session', 
+  'Session Completed', 
+  'Docs Submitted', 
+  'Shortlisted Univ.', 
+  'Application in Progress', 
+  'Offer Letter Received',
+  'Deposit Paid', 
+  'Visa Received', 
+  'Flight and Accommodation Booked', 
+  'Tuition Fee Paid', 
+  'Commission Received'
+];
+Thank you!
+
+
+
+
+
+
+

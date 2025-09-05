@@ -1901,6 +1901,7 @@ const LeadWorkspace = () => {
         body: JSON.stringify({ stage, userId: currentUser.id, reason })
       }),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/leads'] });
       queryClient.invalidateQueries({ queryKey: [`/api/leads/${leadId}`] });
       queryClient.invalidateQueries({ queryKey: [`/api/leads/${leadId}/history`] });
       toast({ title: 'Success', description: 'Stage updated successfully' });
