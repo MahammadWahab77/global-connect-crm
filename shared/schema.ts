@@ -11,6 +11,8 @@ export const users = pgTable("users", {
   role: text("role").notNull().default("counselor"), // 'admin' or 'counselor'
   phone: text("phone"),
   isActive: boolean("is_active").notNull().default(true),
+  resetPasswordToken: text("reset_password_token"),
+  resetPasswordExpires: timestamp("reset_password_expires"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
