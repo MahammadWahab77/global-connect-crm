@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/neon-serverless";
 import { Pool, neonConfig } from "@neondatabase/serverless";
-import { eq, and, desc, sql, isNull } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, gt } from "drizzle-orm";
 import ws from "ws";
 import { 
   users, 
@@ -86,7 +86,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db.select().from(users).where(
       and(
         eq(users.resetPasswordToken, token),
-        sql`${users.resetPasswordExpires} > NOW()`
+        gt(users.resetPasswordExpires, new Date())
       )
     );
     return result[0];
