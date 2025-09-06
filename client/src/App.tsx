@@ -2,6 +2,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
 import Auth from './pages/Auth';
+import ResetPassword from './pages/ResetPassword';
 import AdminDashboard from './pages/AdminDashboard';
 import CounselorDashboard from './pages/CounselorDashboard';
 import AdminLeads from './pages/AdminLeads';
@@ -43,6 +44,7 @@ function App() {
       <div className="min-h-screen bg-background">
         <Routes>
           <Route path="/auth" element={<Auth />} />
+          <Route path="/reset-password/:token" element={<ResetPassword />} />
           <Route path="/" element={
             <ProtectedRoute>
               <Index />
